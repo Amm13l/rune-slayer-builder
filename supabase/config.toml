@@ -1,0 +1,11 @@
+# For detailed configuration reference documentation, visit:
+# https://supabase.com/docs/guides/local-development/cli/config
+project_id = "nzvkfczphpvkvfsquzmy"
+
+# Database Webhooks rufen die Function ohne User-JWT auf.
+[functions.notify-discord-build]
+verify_jwt = false
+
+# Discord ruft das direkt auf (eigene Ed25519-Signaturpruefung statt JWT).
+[functions.discord-interactions]
+verify_jwt = false

@@ -1,0 +1,219 @@
+<!DOCTYPE html><html lang="en"><head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rune Slayer Builder</title>
+    <link rel="stylesheet" href="css/organizer.css">
+    <link rel="icon" href="images/icon.png" type="image/png">
+    <script src="js/lz-string.min.js"></script>
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+</head>
+<body>
+    <h1>Rune Slayer Builder</h1>
+    <div class="main-container">
+        <!-- Anordnung wie das Ausrüstungsmenü im Spiel: Rüstung links,
+             Ringe/Lantern rechts, Waffen unten, Charakter in der Mitte.
+             Beim Hovern über einem Slot klappt sein .slot-panel auf: oben die
+             Item-Infos (oder "None"), darunter die Rune-Slots. -->
+        <div class="LayoutEquipments">
+            <div class="equipment-grid">
+                <div class="gear-col">
+                    <div class="slot-wrap">
+                        <div class="slot" data-slot="helmet">Helmet</div>
+                        <div class="slot-panel">
+                            <div class="slot-panel-info"></div>
+                            <div class="rune-slots">
+                                <div class="rune-slot" data-original-number="I">I</div>
+                                <div class="rune-slot" data-original-number="II">II</div>
+                                <div class="rune-slot" data-original-number="III">III</div>
+                                <div class="rune-slot" data-original-number="IV">IV</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="slot-wrap">
+                        <div class="slot" data-slot="chest">Chest</div>
+                        <div class="slot-panel">
+                            <div class="slot-panel-info"></div>
+                            <div class="rune-slots">
+                                <div class="rune-slot" data-original-number="I">I</div>
+                                <div class="rune-slot" data-original-number="II">II</div>
+                                <div class="rune-slot" data-original-number="III">III</div>
+                                <div class="rune-slot" data-original-number="IV">IV</div>
+                                <div class="rune-slot" data-original-number="V">V</div>
+                                <div class="rune-slot" data-original-number="VI">VI</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="slot-wrap">
+                        <div class="slot" data-slot="back">Back</div>
+                        <div class="slot-panel">
+                            <div class="slot-panel-info"></div>
+                        </div>
+                    </div>
+                    <div class="slot-wrap">
+                        <div class="slot" data-slot="boots">Boots</div>
+                        <div class="slot-panel">
+                            <div class="slot-panel-info"></div>
+                            <div class="rune-slots">
+                                <div class="rune-slot" data-original-number="I">I</div>
+                                <div class="rune-slot" data-original-number="II">II</div>
+                                <div class="rune-slot" data-original-number="III">III</div>
+                                <div class="rune-slot" data-original-number="IV">IV</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="gear-center">
+                    <div class="character-portrait"></div>
+                    <div class="gear-center-slots">
+                        <div class="slot-wrap">
+                            <div class="slot" data-slot="race">Race</div>
+                            <div class="slot-panel">
+                                <div class="slot-panel-info"></div>
+                            </div>
+                        </div>
+                        <div class="slot-wrap">
+                            <div class="slot" data-slot="fairy">Fairy</div>
+                            <div class="slot-panel">
+                                <div class="slot-panel-info"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="race-evolution-row" id="race-evolution-row">
+                        <select id="race-evolution-select" class="race-evolution-select" title="Racial Upgrade — unlocks at level 15"></select>
+                    </div>
+                </div>
+
+                <div class="gear-col">
+                    <div class="slot-wrap">
+                        <div class="slot" data-slot="ring" data-ring-number="1">Ring 1</div>
+                        <div class="slot-panel slot-panel-left">
+                            <div class="slot-panel-info"></div>
+                        </div>
+                    </div>
+                    <div class="slot-wrap">
+                        <div class="slot" data-slot="ring" data-ring-number="2">Ring 2</div>
+                        <div class="slot-panel slot-panel-left">
+                            <div class="slot-panel-info"></div>
+                        </div>
+                    </div>
+                    <div class="slot-wrap">
+                        <div class="slot" data-slot="ring" data-ring-number="3">Ring 3</div>
+                        <div class="slot-panel slot-panel-left">
+                            <div class="slot-panel-info"></div>
+                        </div>
+                    </div>
+                    <div class="slot-wrap">
+                        <div class="slot" data-slot="ring" data-ring-number="4">Ring 4</div>
+                        <div class="slot-panel slot-panel-left">
+                            <div class="slot-panel-info"></div>
+                        </div>
+                    </div>
+                    <div class="slot-wrap">
+                        <div class="slot" data-slot="lantern">Lantern</div>
+                        <div class="slot-panel slot-panel-left">
+                            <div class="slot-panel-info"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="gear-row-bottom">
+                <div class="slot-wrap">
+                    <div class="slot" data-slot="weapon1">Weapon 1</div>
+                    <div class="slot-panel slot-panel-up">
+                        <div class="slot-panel-info"></div>
+                        <div class="rune-slots">
+                            <div class="rune-slot" data-original-number="I">I</div>
+                            <div class="rune-slot" data-original-number="II">II</div>
+                            <div class="rune-slot" data-original-number="III">III</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="slot-wrap">
+                    <div class="slot" data-slot="offhand">Offhand</div>
+                    <div class="slot-panel slot-panel-up">
+                        <div class="slot-panel-info"></div>
+                        <div class="rune-slots">
+                            <div class="rune-slot" data-original-number="I">I</div>
+                            <div class="rune-slot" data-original-number="II">II</div>
+                            <div class="rune-slot" data-original-number="III">III</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="slot-wrap">
+                    <div class="slot" data-slot="weapon2">Weapon 2</div>
+                    <div class="slot-panel slot-panel-up">
+                        <div class="slot-panel-info"></div>
+                        <div class="rune-slots">
+                            <div class="rune-slot" data-original-number="I">I</div>
+                            <div class="rune-slot" data-original-number="II">II</div>
+                            <div class="rune-slot" data-original-number="III">III</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="class-area">
+            <div class="class-container">
+            <h2>Class Levels</h2>
+            <div class="class-levels-display">
+                <div class="total-levels">Total Levels: <span id="total-levels">0</span>/50</div>
+                <div class="class-list" id="class-list">
+                    <!-- Classes will be populated here -->
+                </div>
+            </div>
+        <div class="export-import-container">
+        <div class="export-container">
+            <button id="export-build-btn" class="export-button">Export File</button>
+            <button id="copy-build-btn" class="export-button">Copy to Clipboard</button>
+        </div>
+        <div class="import-container">
+            <button id="import-build-btn" class="import-button">Import File</button>
+        <button id="paste-build-btn" class="import-button">Paste from Clipboard</button>
+        </div>
+        <div class="community-hub-row">
+            <button id="community-hub-btn" class="community-hub-open-btn">Open Community Hub</button>
+        </div>
+        </div>
+
+        <p style="color: #888888;">This is fan-made and may have mistakes.</p>
+        <p style="color: #888888;">Last Updated: Aug 29 </p>
+        </div>
+
+            <div class="abilities-stats-column">
+                <div class="abilities-container">
+                    <h2>Abilities</h2>
+                    <!-- Steht ausserhalb von .abilities-display, weil das bei
+                         jeder Aenderung neu gebaut wird — Sucheingabe und
+                         Fokus wuerden sonst verloren gehen. -->
+                    <div class="abilities-toolbar">
+                        <button id="add-ability-btn" class="ability-add-btn" title="Equip a spell, scroll or free passive"><span class="ability-add-plus">+</span>Equip Ability</button>
+                        <input type="text" id="ability-search" class="ability-search" placeholder="Search abilities..." autocomplete="off">
+                    </div>
+                    <div class="abilities-display">
+                        <!-- Unlocked abilities will be populated here -->
+                    </div>
+                </div>
+
+                <div class="total-stats-container">
+                    <div class="stats-header">
+                        <h2>Total Character Stats</h2>
+                    </div>
+                    <label class="professions-checkbox-label">
+                        <input type="checkbox" id="level60-professions" class="professions-checkbox">
+                        <span>Level 60 Professions</span>
+                    </label>
+                    <div class="stats-display">
+                        <!-- Stats will be populated here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="js/main.js"></script>
+
+
+</div></body></html>

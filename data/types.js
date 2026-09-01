@@ -1,0 +1,211 @@
+class Race {
+  constructor({
+    name,
+    stats,
+    rarity,
+    description,
+    evolutions,
+    actives,
+    passives,
+  }) {
+    this.name = name;
+    this.stats = stats || {};
+    this.rarity = rarity || 'common';
+    this.description = description || null;
+    // Racial Upgrades. Die Stats einer Evolution sind Vollwerte, keine Deltas:
+    // ist eine gewaehlt, ersetzt sie die Basisrasse fuer die Statberechnung.
+    this.evolutions = evolutions || [];
+    // Skill-Shape: { name, level, requirement, description }
+    this.actives = actives || [];
+    this.passives = passives || [];
+  }
+}
+
+class Class {
+  constructor({
+    name,
+    stats,
+  }) {
+    this.name = name;
+    this.stats = stats || {};
+  }
+}
+
+/* Equipbare Ability (Spell, Scroll oder freie Passive). Klassen- und
+   Rassen-Abilities sind keine Ability-Instanzen — die stecken weiterhin in
+   classdata.js/races.js und werden nur gleich dargestellt.
+
+   grants traegt die Effekte, die der Builder wirklich auswertet:
+     dualWield: ['sword', 'dagger']  -> erlaubt eine zweite Waffe dieser
+                                        Gattungen im Offhand-Slot */
+class Ability {
+  constructor({
+    name,
+    rarity,
+    kind,
+    category,
+    level,
+    requirement,
+    description,
+    grants,
+  }) {
+    this.name = name;
+    this.rarity = rarity || 'common';
+    this.kind = kind || 'active';        // 'active' | 'passive'
+    this.category = category || 'spell'; // 'spell' | 'scroll' | 'passive'
+    this.level = level ?? null;
+    this.requirement = requirement || null;
+    this.description = description || null;
+    this.grants = grants || {};
+  }
+}
+
+class Item {
+  constructor({
+    name,
+    rarity,
+    stats,
+    runes,
+    runeslots,
+    description,
+  }) {
+    this.name = name;
+    this.rarity = rarity || 'common';
+    this.stats = stats || {};
+    this.runes = runes || {};
+    this.runeslots = runeslots || 0;
+    this.description = description || null;
+  }
+}
+
+class Rune {
+  constructor({
+    name,
+    type,
+    rarity,
+    stats,
+    description,
+  }) {
+    this.name = name;
+    this.rarity = rarity || 'uncommon';
+    this.type = type || 'null'; // Helmet, Chest, Legs, Weapon, null (any)
+    this.stats = stats || {};
+    this.description = description || null
+  }
+}
+
+class Lantern extends Item {
+  constructor({
+    ...item
+  }) {
+    super({ ...item, runeslots: 0});
+  }
+}
+
+class Weapon extends Item {
+  constructor({
+    damage,
+    level,
+    type,
+    ...item
+  }) {
+    super({ ...item, runeslots: 3});
+    this.damage = damage || {physical: 0};
+    this.level = level || 1;
+    this.type = type;
+  }
+}
+
+class Armor extends Item {
+  constructor({
+    armor,
+    level,
+    type,
+    ...item
+  }) {
+    super({ ...item });
+    this.armor = armor || 0;
+    this.level = level || null;
+    this.type = type;
+  }
+}
+
+class Helmet extends Armor {
+    constructor({
+    ...item
+  }) {
+    super({ ...item, runeslots: 4});
+  }
+}
+
+class Boots extends Armor {
+    constructor({
+    ...item
+  }) {
+    super({ ...item, runeslots: 4});
+  }
+}
+
+class Chest extends Armor {
+    constructor({
+    ...item
+  }) {
+    super({ ...item, runeslots: 6});
+  }
+}
+
+class Offhand extends Armor {
+    constructor({
+    ...item
+  }) {
+    super({ ...item, runeslots: 3});
+  }
+}
+
+class Back extends Armor {
+    constructor({
+    ...item
+  }) {
+    super({ ...item, runeslots: 0, type: 'miscellaneous'});
+  }
+}
+
+class Shield extends Armor {
+    constructor({
+    posture,
+    ...item
+  }) {
+    super({ ...item, runeslots: 3});
+    this.posture = posture;
+  }
+}
+
+class Sash extends Item {
+  constructor({
+    ...item
+  }) {
+    super({ ...item, runeslots: 3});
+  }
+}
+
+
+class Ring extends Item {
+  constructor({
+    level,
+    ...item
+  }) {
+    super({ ...item, runeslots: 0});
+    this.level = level || null;
+  }
+}
+
+class Fairy extends Item {
+  constructor({
+    ...item
+  }) {
+    super({ ...item, runeslots: 0});
+  }
+}
+
+
+export { Fairy, Class, Item, Rune, Weapon, Armor, Helmet, Chest, Boots, Offhand, Shield, Sash, Ring, Lantern, Back, Race, Ability };

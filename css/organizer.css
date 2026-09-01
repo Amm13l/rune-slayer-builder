@@ -1,0 +1,2356 @@
+/* ============================================================
+   Rune Slayer Builder — "Ashen" Redesign
+   Souls-like: fast schwarze Flächen, dünne Doppelrahmen,
+   Serifenschrift, fahles Seelen-Blau und Aschgold, Vignette.
+   Schlicht, dunkel, mystisch — kein Schnickschnack.
+   Die Rarity-Darstellung (rarity.png + Filter + Farbcodes)
+   ist unverändert übernommen.
+   ============================================================ */
+
+:root {
+  --font-main: 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
+  --font-num: 'Palatino Linotype', Georgia, serif;
+
+  --bg: #0a0a0c;
+  --panel: rgba(16, 16, 19, 0.92);
+  --border: #37342e;
+  --border-dim: #242220;
+  --border-bright: #6b6350;
+
+  --bone: #cfc6ae;          /* Aschgold / Knochen — Überschriften */
+  --soul: #8fb8c9;          /* fahles Seelen-Blau — Akzente */
+  --ember: #b0692f;         /* Glut — sparsame Warnfarbe */
+  --evolve: #e0b050;        /* Gold — Evolutions-Wahl bei Abilities */
+  --evolve-dim: #7d6229;
+
+  --text: #c9c7c2;
+  --text-dim: #8a877f;
+  --text-faint: #57544e;
+
+  --positive: #9fbc8f;
+  --negative: #b06258;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: var(--font-main);
+  color: var(--text);
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(ellipse 900px 420px at 50% -80px, rgba(143, 184, 201, 0.055), transparent 70%),
+    radial-gradient(ellipse 1600px 900px at 50% 55%, rgba(20, 19, 23, 0.9), rgba(5, 5, 6, 1) 95%);
+  background-attachment: fixed;
+}
+
+/* Vignette */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 120% 100% at 50% 45%, transparent 55%, rgba(0, 0, 0, 0.55) 100%);
+  z-index: 0;
+}
+
+body > * {
+  position: relative;
+  z-index: 1;
+}
+
+h1 {
+  margin: 30px 0 4px;
+  text-align: center;
+  font-size: 1.7rem;
+  font-weight: 400;
+  font-variant: small-caps;
+  letter-spacing: 0.3em;
+  color: var(--bone);
+  text-shadow: 0 0 18px rgba(207, 198, 174, 0.25);
+}
+
+/* Souls-Trennlinie unter dem Titel */
+h1::after {
+  content: '';
+  display: block;
+  width: min(420px, 60vw);
+  height: 1px;
+  margin: 14px auto 0;
+  background: linear-gradient(90deg, transparent, var(--border-bright), transparent);
+}
+
+/* ---------- Grundlayout ---------- */
+
+.main-container {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 22px;
+  max-width: 97vw;
+  margin: 0 auto;
+  padding: 20px 10px 70px;
+}
+
+.LayoutEquipments {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  outline: 1px solid var(--border-dim);
+  outline-offset: 3px;
+  align-self: flex-start;
+}
+
+/* Rüstung | Charakter | Ringe */
+.equipment-grid {
+  display: flex;
+  gap: 18px;
+  /* stretch, damit das Charakterbild auf die Höhe der längsten Spalte wächst */
+  align-items: stretch;
+}
+
+.gear-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.gear-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 240px;
+}
+
+/* Rahmen für die Charaktersilhouette (wird von js/character.js befüllt) */
+.character-portrait {
+  width: 100%;
+  min-height: 240px;
+  flex: 1;
+  display: flex;
+  padding: 10px;
+  border: 1px solid var(--border-dim);
+  background:
+    radial-gradient(ellipse at 50% 35%, rgba(143, 184, 201, 0.06), transparent 65%),
+    rgba(0, 0, 0, 0.35);
+  box-shadow: inset 0 0 26px rgba(0, 0, 0, 0.85);
+}
+
+.character-svg {
+  width: 100%;
+  height: 100%;
+  /* Boden-Schatten, damit die Figur nicht im Nichts schwebt */
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.7));
+}
+
+.gear-center-slots {
+  display: flex;
+  gap: 12px;
+}
+
+/* Waffen und Offhand unten, wie im Spiel */
+.gear-row-bottom {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+/* Trägt Item-Slot und ausklappbare Rune-Slots */
+.slot-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+/* ---------- Slots ---------- */
+
+.slot {
+  width: 96px;
+  height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 6px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.45);
+  box-shadow: inset 0 0 14px rgba(0, 0, 0, 0.8);
+  color: var(--text-faint);
+  font-size: 12px;
+  font-variant: small-caps;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.slot:hover {
+  border-color: var(--soul);
+  box-shadow: inset 0 0 14px rgba(0, 0, 0, 0.8), 0 0 12px rgba(143, 184, 201, 0.22);
+  color: var(--text-dim);
+}
+
+.slot.filled {
+  color: #e8e6e1;
+  font-variant: normal;
+  letter-spacing: 0;
+  border-color: var(--border-bright);
+  background: #101014;
+  overflow: hidden;
+}
+
+.slot > * {
+  position: relative;
+  z-index: 2;
+}
+
+/* --- Rarity-Layer (unverändert übernommen) --- */
+.slot.filled::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: url('../images/rarity.png');
+  background-size: cover;
+  background-position: center;
+  z-index: 1;
+  opacity: 1;
+}
+
+.slot.filled[data-rarity="common"]::before {
+  filter: contrast(10) saturate(0) brightness(0.6);
+}
+.slot.filled[data-rarity="uncommon"]::before {
+  filter: hue-rotate(60deg);
+}
+.slot.filled[data-rarity="rare"]::before {
+  filter: invert(0.3) sepia(10) saturate(50) hue-rotate(182deg) brightness(0.9);
+}
+.slot.filled[data-rarity="epic"]::before {
+  filter: invert(0.4) sepia(10) saturate(50) hue-rotate(250deg) brightness(0.9);
+}
+.slot.filled[data-rarity="legendary"]::before {
+  filter: brightness(1);
+}
+.slot.filled[data-rarity="spec"]::before {
+  filter: invert(0.3) sepia(10) saturate(50) hue-rotate(320deg) brightness(0.9);
+}
+
+.slot.filled::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.1) 0%,
+    rgba(255, 255, 255, 0) 50%,
+    rgba(255, 255, 255, 0.1) 100%
+  );
+  pointer-events: none;
+}
+
+.slot.filled[data-rarity="common"]:hover {
+  background-color: #3a3a3a;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+}
+.slot.filled[data-rarity="uncommon"]:hover {
+  background-color: #1e3a1e;
+  box-shadow: 0 0 10px rgba(30, 255, 0, 0.3);
+}
+.slot.filled[data-rarity="rare"]:hover {
+  background-color: #0e1a3a;
+  box-shadow: 0 0 10px rgba(0, 112, 221, 0.3);
+}
+.slot.filled[data-rarity="epic"]:hover {
+  background-color: #2a0e3a;
+  box-shadow: 0 0 10px rgba(163, 53, 238, 0.3);
+}
+.slot.filled[data-rarity="legendary"]:hover {
+  background-color: #3a1e0e;
+  box-shadow: 0 0 10px rgba(255, 128, 0, 0.3);
+}
+.slot.filled[data-rarity="spec"]:hover {
+  background-color: #3a0e0e;
+  box-shadow: 0 0 10px rgba(255, 15, 15, 0.3);
+}
+
+.slot-content {
+  font-size: 11px;
+  line-height: 1.25;
+  /* Nur umbrechen wenn ein Wort allein nicht passt — das alte
+     `word-break: break-word` zerlegte auch Wörter, die gepasst hätten. */
+  word-break: normal;
+  overflow-wrap: break-word;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+
+/* Löschen-Overlay: deckt den kompletten Slot ab, damit das Klickziel groß ist.
+   Erscheint beim Hovern über einem gefüllten Slot; ein Klick leert ihn. */
+.remove-item,
+.remove-rune {
+  position: absolute;
+  inset: 0;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  background: rgba(12, 2, 2, 0.66);
+  z-index: 4;
+}
+
+/* Zwei diagonale Balken bilden das Kreuz über der ganzen Slotfläche */
+.remove-item::before,
+.remove-item::after,
+.remove-rune::before,
+.remove-rune::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 14%;
+  right: 14%;
+  height: 3px;
+  margin-top: -1.5px;
+  background: var(--negative);
+  box-shadow: 0 0 8px rgba(0, 0, 0, 0.9);
+}
+
+/* Runen-Slots sind knapp halb so groß — dünnere Balken halten die Proportion */
+.remove-rune::before,
+.remove-rune::after {
+  height: 2px;
+  margin-top: -1px;
+}
+
+.remove-item::before,
+.remove-rune::before {
+  transform: rotate(45deg);
+}
+
+.remove-item::after,
+.remove-rune::after {
+  transform: rotate(-45deg);
+}
+
+.slot.filled:hover .remove-item,
+.rune-slot.filled:hover .remove-rune {
+  opacity: 1;
+}
+
+.remove-item:hover,
+.remove-rune:hover {
+  background: rgba(34, 3, 3, 0.74);
+}
+
+.remove-item:hover::before,
+.remove-item:hover::after,
+.remove-rune:hover::before,
+.remove-rune:hover::after {
+  background: #e8a49b;
+}
+
+/* ---------- Runen-Slots ---------- */
+
+/* Hover-Panel am Slot: oben die Item-Infos, darunter die Rune-Slots.
+   Es ist Kind von .slot-wrap, dadurch hält der Hover beim Wechsel vom Item
+   ins Panel — kein toter Bereich dazwischen, und man kann darin klicken. */
+.slot-panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 1500;
+  width: 224px;
+  padding: 12px;
+  border: 1px solid var(--border-bright);
+  background: rgba(10, 10, 13, 0.98);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.9);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease, visibility 0.12s;
+}
+
+/* Unten angeschlagene Slots klappen nach oben, die rechte Spalte nach links —
+   sonst läuft das Panel aus dem Fenster. */
+.slot-panel-up {
+  top: auto;
+  bottom: 100%;
+}
+
+.slot-panel-left {
+  left: auto;
+  right: 0;
+}
+
+.slot-wrap:hover > .slot-panel {
+  opacity: 1;
+  visibility: visible;
+}
+
+.slot-panel-info {
+  font-size: 13px;
+  color: var(--text);
+}
+
+/* Platz fuer die Fragezeichen-Box in der Panel-Ecke */
+.slot-panel:has(> .race-abilities-btn) .slot-panel-info {
+  padding-right: 26px;
+}
+
+.slot-panel-empty {
+  color: var(--text-faint);
+  font-variant: small-caps;
+  letter-spacing: 0.14em;
+  text-align: center;
+  padding: 4px 0 2px;
+}
+
+/* Runen immer zwei pro Zeile. Bei ungerader Anzahl rutscht die letzte
+   mittig unter die beiden darüber. */
+.slot-panel .rune-slots {
+  display: grid;
+  grid-template-columns: repeat(2, 56px);
+  gap: 8px;
+  justify-content: center;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-dim);
+}
+
+.slot-panel .rune-slots > .rune-slot:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+  justify-self: center;
+}
+
+/* Zeigt am Item, dass dort Runen stecken, ohne das Panel zu öffnen */
+.slot-wrap:has(.rune-slot.filled) > .slot.filled::after {
+  outline: 1px solid var(--soul);
+  outline-offset: -4px;
+}
+
+.rune-slot {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 4px;
+  border: 1px solid var(--border-dim);
+  background: rgba(0, 0, 0, 0.4);
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.8);
+  color: var(--text-faint);
+  font-size: 11px;
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  /* Runensockel: leicht angeschrägte Ecken */
+  clip-path: polygon(15% 0, 85% 0, 100% 15%, 100% 85%, 85% 100%, 15% 100%, 0 85%, 0 15%);
+}
+
+.rune-slot:hover {
+  border-color: var(--soul);
+  color: var(--soul);
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.8), 0 0 10px rgba(143, 184, 201, 0.25);
+}
+
+.rune-slot.filled {
+  border: 1px solid var(--border-bright);
+  background: #101014;
+  color: #e8e6e1;
+  overflow: hidden;
+}
+
+/* Hebt nur den Text über den Rarity-Layer. Früher stand hier `.rune-slot > *`,
+   was auch das Löschen-Overlay traf und dessen `position: absolute` auf
+   `relative` zurücksetzte — der Button landete dadurch im Textfluss und
+   verdrängte den Runennamen. */
+.rune-slot > .slot-content {
+  position: relative;
+  z-index: 2;
+}
+
+.rune-slot .slot-content {
+  font-size: 9px;
+  line-height: 1.15;
+}
+
+/* --- Rune Rarity-Layer (unverändert übernommen) --- */
+.rune-slot.filled::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: url('../images/rarity.png');
+  background-size: cover;
+  background-position: center;
+  z-index: 1;
+}
+
+.rune-slot.filled[data-rarity="common"]::before {
+  filter: contrast(10) saturate(0) brightness(0.6);
+}
+.rune-slot.filled[data-rarity="uncommon"]::before {
+  filter: hue-rotate(60deg);
+}
+.rune-slot.filled[data-rarity="rare"]::before {
+  filter: invert(0.3) sepia(10) saturate(50) hue-rotate(182deg) brightness(0.9);
+}
+.rune-slot.filled[data-rarity="epic"]::before {
+  filter: invert(0.4) sepia(10) saturate(50) hue-rotate(250deg) brightness(0.9);
+}
+.rune-slot.filled[data-rarity="legendary"]::before {
+  filter: brightness(1);
+}
+.rune-slot.filled[data-rarity="spec"]::before {
+  filter: invert(0.3) sepia(10) saturate(50) hue-rotate(320deg) brightness(0.9);
+}
+
+/* ---------- Panels ---------- */
+
+.total-stats-container,
+.class-container,
+.abilities-container {
+  width: 300px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  outline: 1px solid var(--border-dim);
+  outline-offset: 3px;
+  padding: 20px;
+  align-self: flex-start;
+}
+
+/* Abilities und Total Character Stats nebeneinander — als letzte
+   beiden Spalten rechts neben den Class Levels. */
+.abilities-stats-column {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 22px;
+}
+
+/* Etwas breiter als die anderen Panels: so passen auch mit Scrollbalken
+   drei Ability-Kacheln nebeneinander. */
+.abilities-stats-column .abilities-container,
+.abilities-stats-column .total-stats-container {
+  width: 340px;
+}
+
+.total-stats-container h2,
+.class-container h2,
+.abilities-container h2 {
+  margin: 0 0 6px;
+  text-align: center;
+  font-size: 1.05rem;
+  font-weight: 400;
+  font-variant: small-caps;
+  letter-spacing: 0.22em;
+  color: var(--bone);
+}
+
+/* Trennlinie unter Panel-Titeln */
+.total-stats-container h2::after,
+.class-container h2::after,
+.abilities-container h2::after {
+  content: '';
+  display: block;
+  height: 1px;
+  margin: 10px auto 6px;
+  width: 80%;
+  background: linear-gradient(90deg, transparent, var(--border-bright), transparent);
+}
+
+.stats-header {
+  margin-bottom: 4px;
+}
+
+/* ---------- Stats-Anzeige ---------- */
+
+.professions-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  color: var(--text-dim);
+  cursor: pointer;
+  margin-bottom: 12px;
+}
+
+.professions-checkbox {
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  border: 1px solid var(--border-bright);
+  background: rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  transition: box-shadow 0.15s ease;
+}
+
+.professions-checkbox:checked {
+  box-shadow: 0 0 8px rgba(143, 184, 201, 0.4);
+  border-color: var(--soul);
+}
+
+.professions-checkbox:checked::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  background: var(--soul);
+}
+
+.stats-display {
+  display: flex;
+  gap: 14px;
+}
+
+.stats-column {
+  flex: 1;
+  min-width: 0;
+}
+
+.stat-section {
+  margin: 12px 0 3px;
+  font-size: 12px;
+  font-variant: small-caps;
+  letter-spacing: 0.18em;
+  color: var(--soul);
+}
+
+.stat-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2.5px 0;
+  font-size: 12.5px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+}
+
+.stat-name {
+  color: var(--text-dim);
+}
+
+.stat-value {
+  font-family: var(--font-num);
+  font-size: 12.5px;
+  color: var(--positive);
+}
+
+.stat-value.negative {
+  color: var(--negative);
+}
+
+@keyframes statPulse {
+  0% { background-color: rgba(143, 184, 201, 0.14); }
+  100% { background-color: transparent; }
+}
+
+.stat-update {
+  animation: statPulse 0.5s ease-out;
+}
+
+/* ---------- Klassen-Panel ---------- */
+
+.class-area {
+  display: flex;
+  align-items: flex-start;
+  gap: 22px;
+}
+
+.class-container {
+  max-height: 84vh;
+  overflow-y: auto;
+}
+
+.total-levels {
+  text-align: center;
+  margin-bottom: 14px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  font-variant: small-caps;
+  letter-spacing: 0.08em;
+}
+
+.total-levels span {
+  color: var(--bone);
+}
+
+.class-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.class-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 11px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border-dim);
+  transition: border-color 0.15s ease;
+}
+
+.class-item:hover {
+  border-color: var(--border-bright);
+}
+
+.class-name {
+  font-size: 14px;
+  font-variant: small-caps;
+  letter-spacing: 0.08em;
+  color: var(--text);
+}
+
+.class-name.clickable {
+  cursor: pointer;
+}
+
+.class-name.clickable:hover {
+  color: var(--soul);
+  text-shadow: 0 0 8px rgba(143, 184, 201, 0.4);
+}
+
+.class-level-input {
+  width: 50px;
+  /* schiebt das Eingabefeld an den rechten Rand, egal wie breit der Name ist */
+  margin-left: auto;
+  padding: 4px 6px;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--text);
+  border: 1px solid var(--border);
+  text-align: center;
+  font-family: var(--font-num);
+  font-size: 13px;
+  transition: border-color 0.15s ease;
+}
+
+.class-level-input:focus {
+  outline: none;
+  border-color: var(--soul);
+}
+
+.subclass-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 11px 8px 22px;
+  margin-top: -7px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border-dim);
+  border-top: none;
+}
+
+.subclass-select {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-family: var(--font-main);
+  font-size: 12.5px;
+}
+
+.subclass-select:focus {
+  outline: none;
+  border-color: var(--soul);
+}
+
+/* Racial Upgrade unter dem Race-Slot; per JS ein-/ausgeblendet */
+.race-evolution-row {
+  display: none;
+  margin-top: -4px;
+}
+
+.race-evolution-select {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-family: var(--font-main);
+  font-size: 12.5px;
+}
+
+.race-evolution-select:focus {
+  outline: none;
+  border-color: var(--soul);
+}
+
+.subclass-info-btn {
+  width: 25px;
+  height: 25px;
+  flex-shrink: 0;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--soul);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  font-family: var(--font-main);
+}
+
+.subclass-info-btn:hover {
+  border-color: var(--soul);
+}
+
+.level-warning {
+  color: var(--negative);
+  font-size: 12px;
+  text-align: center;
+  margin-top: 10px;
+  display: none;
+}
+
+/* ---------- Export / Import ---------- */
+
+.export-import-container {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.export-container,
+.import-container {
+  display: flex;
+  gap: 7px;
+}
+
+.export-button,
+.import-button {
+  flex: 1;
+  padding: 8px 6px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border-bright);
+  color: var(--text);
+  font-family: var(--font-main);
+  font-size: 11.5px;
+  font-variant: small-caps;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.export-button:hover {
+  border-color: var(--bone);
+  color: var(--bone);
+  box-shadow: 0 0 10px rgba(207, 198, 174, 0.18);
+}
+
+.import-button:hover {
+  border-color: var(--soul);
+  color: var(--soul);
+  box-shadow: 0 0 10px rgba(143, 184, 201, 0.18);
+}
+
+.class-container p {
+  color: var(--text-faint) !important;
+  font-size: 11.5px;
+  font-style: italic;
+  text-align: center;
+  margin: 12px 0 0;
+}
+
+/* ---------- Abilities-Panel ---------- */
+
+.abilities-container {
+  max-height: 84vh;
+  overflow-y: auto;
+}
+
+.abilities-hint {
+  color: var(--text-faint);
+  text-align: center;
+  font-size: 12.5px;
+  font-style: italic;
+  padding: 10px 0 2px;
+}
+
+/* "+"-Leiste und Suchfeld ganz oben im Panel */
+.abilities-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-bottom: 12px;
+}
+
+.ability-search {
+  width: 100%;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-family: var(--font-main);
+  font-size: 12.5px;
+  transition: border-color 0.15s ease;
+}
+
+.ability-search::placeholder {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.ability-search:focus {
+  outline: none;
+  border-color: var(--soul);
+}
+
+.ability-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 6px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px dashed var(--border-bright);
+  color: var(--text-dim);
+  font-family: var(--font-main);
+  font-size: 11.5px;
+  font-variant: small-caps;
+  letter-spacing: 0.16em;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ability-add-btn:hover {
+  border-style: solid;
+  border-color: var(--soul);
+  color: var(--soul);
+  box-shadow: 0 0 12px rgba(143, 184, 201, 0.18);
+}
+
+.ability-add-plus {
+  font-size: 17px;
+  line-height: 0.8;
+  letter-spacing: 0;
+}
+
+/* Active / Passive — die einzige Gliederung im Panel */
+.ability-group-header {
+  margin: 12px 0 7px;
+  font-size: 12px;
+  font-variant: small-caps;
+  letter-spacing: 0.18em;
+  color: var(--soul);
+  border-bottom: 1px solid var(--border-dim);
+  padding-bottom: 3px;
+}
+
+.ability-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 80px);
+  grid-auto-rows: 80px;
+  gap: 10px;
+  justify-content: center;
+}
+
+/* ---------- Ability-Kachel (Item-Look) ---------- */
+
+.ability-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 80px;
+  height: 80px;
+  padding: 5px;
+  background: #101014;
+  border: 1px solid var(--border-dim);
+  color: #e8e6e1;
+  font-size: 10.5px;
+  text-align: center;
+  overflow: hidden;
+  cursor: help;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* Nur den Text ueber den Rarity-Layer heben. Ein pauschales `.ability-card > *`
+   wuerde auch das Loeschen-Overlay treffen und dessen `position: absolute`
+   aufheben — es landete dann im Textfluss. */
+.ability-card > .ability-card-name,
+.ability-card > .ability-card-note {
+  position: relative;
+  z-index: 2;
+}
+
+.ability-card-name {
+  line-height: 1.2;
+  word-break: normal;
+  overflow-wrap: break-word;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+
+.ability-card-level {
+  position: absolute;
+  top: 3px;
+  left: 0;
+  right: 0;
+  font-family: var(--font-num);
+  font-size: 9px;
+  color: var(--soul);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
+}
+
+.ability-card-note {
+  font-size: 8.5px;
+  font-style: italic;
+  color: #cfc6ae;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
+}
+
+/* --- Ability Rarity-Layer (gleiche Filter wie Items/Runen) --- */
+.ability-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: url('../images/rarity.png');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.ability-card[data-rarity="common"]::before {
+  filter: contrast(10) saturate(0) brightness(0.6);
+}
+.ability-card[data-rarity="uncommon"]::before {
+  filter: hue-rotate(60deg);
+}
+.ability-card[data-rarity="rare"]::before {
+  filter: invert(0.3) sepia(10) saturate(50) hue-rotate(182deg) brightness(0.9);
+}
+.ability-card[data-rarity="epic"]::before {
+  filter: invert(0.4) sepia(10) saturate(50) hue-rotate(250deg) brightness(0.9);
+}
+.ability-card[data-rarity="legendary"]::before {
+  filter: brightness(1);
+}
+.ability-card[data-rarity="spec"]::before {
+  filter: invert(0.3) sepia(10) saturate(50) hue-rotate(320deg) brightness(0.9);
+}
+
+.ability-card:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.8);
+  z-index: 3;
+}
+
+/* Selbst equipte Abilities heben sich vom automatisch Freigeschalteten ab —
+   gleiche Sprache wie der Runen-Marker am Item-Slot. */
+.ability-card.equipped {
+  border-color: var(--soul);
+}
+
+/* Raute unten rechts — der Rahmen allein wuerde bei blauen Rarities untergehen */
+.ability-card.equipped::after {
+  content: '';
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 6px;
+  height: 6px;
+  background: var(--soul);
+  transform: rotate(45deg);
+  box-shadow: 0 0 7px rgba(143, 184, 201, 0.85);
+  z-index: 3;
+  pointer-events: none;
+}
+
+/* ---------- Evolutions-Wahl ---------- */
+
+/* Gelber Pfeil oben rechts auf Kacheln, die eine Evolution anbieten. Die
+   Ability selbst traegt weiterhin nur einen Namen (keine "... Evolution"
+   Dopplung) - der Pfeil ist das einzige Signal, dass ab hier eine Wahl
+   moeglich ist, deshalb bewusst groesser/kontrastreicher als andere
+   Kachel-Badges und mit dezentem Dauerglow statt nur Hover. */
+.ability-evolve-btn {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  z-index: 5;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(8, 6, 2, 0.9);
+  border: 2px solid var(--evolve);
+  border-radius: 50%;
+  color: var(--evolve);
+  font-size: 10.5px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 0 6px rgba(224, 176, 80, 0.65);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
+}
+
+.ability-evolve-btn:hover {
+  background: rgba(30, 20, 4, 0.95);
+  box-shadow: 0 0 12px rgba(224, 176, 80, 0.85), 0 0 0 1px rgba(0, 0, 0, 0.6);
+  transform: scale(1.1);
+}
+
+/* Getroffene Wahl: gefuellter Pfeil, damit man sie auf einen Blick sieht */
+.ability-evolve-btn.chosen {
+  background: var(--evolve);
+  border-color: var(--evolve);
+  color: #171104;
+  box-shadow: 0 0 8px rgba(224, 176, 80, 0.75), 0 0 0 1px rgba(0, 0, 0, 0.6);
+}
+
+/* Popover am Pfeil. Erbt .item-menu (Klick-ausserhalb-schliesst), setzt aber
+   dessen feste Position an der linken Bildschirmkante zurueck. */
+/* Doppelklasse ueberall, weil die .item-menu-Regeln spaeter in der Datei
+   stehen und teils hoehere Spezifitaet haben (.item-menu button). */
+.item-menu.evolution-menu {
+  top: 0;
+  left: 0;
+  transform: none;
+  width: min(300px, 88vw);
+  max-height: 70vh;
+  border-color: var(--evolve-dim);
+  z-index: 1700;
+}
+
+.evolution-menu-header {
+  padding: 9px 13px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--evolve);
+  font-size: 11.5px;
+  font-variant: small-caps;
+  letter-spacing: 0.14em;
+}
+
+.evolution-menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px;
+  overflow-y: auto;
+}
+
+/* Die Optionen sind Buttons in einem .item-menu und erben sonst dessen
+   80x80-Kachel samt Rarity-Rahmen — hier soll es eine Textzeile sein. */
+.item-menu.evolution-menu button::before,
+.item-menu.evolution-menu button::after {
+  content: none;
+}
+
+.evolution-menu .evolution-option {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid transparent;
+  color: var(--text);
+  font-family: var(--font-main);
+  text-align: left;
+  cursor: pointer;
+  overflow: visible;
+  transform: none;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+
+.evolution-menu .evolution-option:hover {
+  border-color: var(--evolve);
+  background: rgba(30, 20, 4, 0.6);
+  transform: none;
+  box-shadow: none;
+}
+
+.evolution-menu .evolution-option.chosen {
+  border-color: var(--evolve-dim);
+  background: rgba(30, 20, 4, 0.45);
+}
+
+.evolution-option.chosen .evolution-option-name::before {
+  content: '▸ ';
+  color: var(--evolve);
+}
+
+.evolution-option-name {
+  font-size: 13px;
+  color: var(--bone);
+}
+
+.evolution-option-desc {
+  margin-top: 3px;
+  font-size: 11.5px;
+  font-style: italic;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+.evolution-menu .evolution-clear {
+  margin-top: 5px;
+  font-size: 11.5px;
+  font-variant: small-caps;
+  letter-spacing: 0.12em;
+  color: var(--text-faint);
+  text-align: center;
+}
+
+.evolution-menu .evolution-clear:hover {
+  border-color: var(--negative);
+  background: rgba(30, 6, 6, 0.5);
+  color: var(--negative);
+}
+
+.tooltip-option-chosen {
+  color: var(--evolve);
+}
+
+/* Kurzer Blitz auf den Karten, die eine frisch gewaehlte Subklasse mitbringt */
+.ability-card.highlight {
+  border-color: var(--soul);
+  box-shadow: 0 0 16px rgba(143, 184, 201, 0.65);
+  transition: box-shadow 0.35s ease, border-color 0.35s ease;
+}
+
+/* Noch nicht freigeschaltet: nur im Nachschlage-Modal sichtbar */
+.ability-card.locked {
+  filter: grayscale(0.85) brightness(0.55);
+}
+
+.ability-card.locked:hover {
+  filter: grayscale(0.5) brightness(0.75);
+}
+
+.ability-card:hover .remove-item {
+  opacity: 1;
+}
+
+.ability-group-note {
+  margin: -4px 0 8px;
+  font-size: 11.5px;
+  font-style: italic;
+  color: var(--text-faint);
+}
+
+/* Fragezeichen-Boxen: Klassen-Abilities in der Levelliste,
+   Rassen-Abilities im aufgeklappten Race-Panel */
+.class-abilities-btn,
+.race-abilities-btn {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--soul);
+  border: 1px solid var(--border);
+  font-family: var(--font-main);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
+}
+
+.class-abilities-btn:hover,
+.race-abilities-btn:hover {
+  border-color: var(--soul);
+  color: #dceaf1;
+  box-shadow: 0 0 10px rgba(143, 184, 201, 0.3);
+}
+
+/* Sitzt in der Ecke des Hover-Panels, ausserhalb des Textflusses */
+.race-abilities-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+}
+
+.ability-modal-overlay {
+  z-index: 1600;
+}
+
+.ability-modal h3 {
+  margin-bottom: 10px;
+}
+
+.ability-modal-link {
+  margin-top: 18px;
+}
+
+/* ---------- Item-/Runen-Menü ---------- */
+
+.item-menu {
+  position: fixed;
+  top: 50%;
+  left: 20px;
+  transform: translateY(-50%);
+  width: min(600px, 40vw);
+  max-height: 82vh;
+  background: rgba(12, 12, 15, 0.97);
+  border: 1px solid var(--border-bright);
+  outline: 1px solid var(--border-dim);
+  outline-offset: 3px;
+  padding: 0;
+  z-index: 999;
+  overflow: hidden;
+  box-shadow: 0 0 50px rgba(0, 0, 0, 0.9);
+  display: flex;
+  flex-direction: column;
+}
+
+.menu-header-container {
+  padding: 13px 15px 11px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.item-menu-header {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  padding: 0;
+}
+
+.item-menu-search,
+.filter-input {
+  flex-grow: 1;
+  padding: 7px 11px;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-family: var(--font-main);
+  font-size: 13px;
+}
+
+.item-menu-search::placeholder {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.item-menu-search:focus {
+  outline: none;
+  border-color: var(--soul);
+}
+
+.menu-reset-button {
+  padding: 6px 13px;
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  font-family: var(--font-main);
+  font-size: 12px;
+  font-variant: small-caps;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.menu-reset-button:hover {
+  color: var(--negative);
+  border-color: var(--negative);
+}
+
+.item-menu-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.filter-select {
+  padding: 5px 7px;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-family: var(--font-main);
+  font-size: 12.5px;
+}
+
+.filter-select:focus {
+  outline: none;
+  border-color: var(--soul);
+}
+
+.item-menu-content {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 80px);
+  grid-auto-rows: 80px;
+  gap: 10px;
+  padding: 15px;
+  overflow-y: auto;
+  flex-grow: 1;
+  justify-content: center;
+}
+
+.item-menu button {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
+  background: #101014;
+  color: #e8e6e1;
+  border: 1px solid var(--border-dim);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  word-break: break-word;
+  text-align: center;
+  font-size: 11px;
+  font-family: var(--font-main);
+  width: 80px;
+  height: 80px;
+  min-width: 80px;
+  min-height: 80px;
+  overflow: hidden;
+}
+
+.item-menu button > * {
+  position: relative;
+  z-index: 2;
+}
+
+/* --- Item-Button Rarity-Layer (unverändert übernommen) --- */
+.item-menu button::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: url('../images/rarity.png');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.item-menu button[data-rarity="common"]::before {
+  filter: contrast(10) saturate(0) brightness(0.6);
+}
+.item-menu button[data-rarity="uncommon"]::before {
+  filter: hue-rotate(60deg);
+}
+.item-menu button[data-rarity="rare"]::before {
+  filter: invert(0.3) sepia(10) saturate(50) hue-rotate(182deg) brightness(0.9);
+}
+.item-menu button[data-rarity="epic"]::before {
+  filter: invert(0.4) sepia(10) saturate(50) hue-rotate(250deg) brightness(0.9);
+}
+.item-menu button[data-rarity="legendary"]::before {
+  filter: brightness(1);
+}
+.item-menu button[data-rarity="spec"]::before {
+  filter: invert(0.3) sepia(10) saturate(50) hue-rotate(320deg) brightness(0.9);
+}
+
+.item-menu button:hover {
+  transform: scale(1.05);
+}
+
+.item-menu button[data-rarity="common"]:hover {
+  background-color: #3a3a3a;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+}
+.item-menu button[data-rarity="uncommon"]:hover {
+  background-color: #1e3a1e;
+  box-shadow: 0 0 10px rgba(30, 255, 0, 0.3);
+}
+.item-menu button[data-rarity="rare"]:hover {
+  background-color: #0e1a3a;
+  box-shadow: 0 0 10px rgba(0, 112, 221, 0.3);
+}
+.item-menu button[data-rarity="epic"]:hover {
+  background-color: #2a0e3a;
+  box-shadow: 0 0 10px rgba(163, 53, 238, 0.3);
+}
+.item-menu button[data-rarity="legendary"]:hover {
+  background-color: #3a1e0e;
+  box-shadow: 0 0 10px rgba(255, 128, 0, 0.3);
+}
+.item-menu button[data-rarity="spec"]:hover {
+  background-color: #3a0e0e;
+  box-shadow: 0 0 10px rgba(255, 15, 15, 0.3);
+}
+
+.item-menu button:active {
+  transform: scale(0.98);
+}
+
+.item-menu button::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.08) 0%,
+    rgba(255, 255, 255, 0) 50%,
+    rgba(255, 255, 255, 0.08) 100%
+  );
+  pointer-events: none;
+}
+
+.no-items-message {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: var(--text-faint);
+  font-style: italic;
+  padding: 24px 0;
+  font-size: 13px;
+}
+
+/* Reset-Button vom Rarity-Layer ausnehmen */
+.item-menu .menu-reset-button::before,
+.item-menu .menu-reset-button::after {
+  content: none;
+}
+
+.item-menu .menu-reset-button {
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ---------- Tooltip ---------- */
+
+.tooltip {
+  position: absolute;
+  max-width: 300px;
+  background: rgba(10, 10, 13, 0.97);
+  border: 1px solid var(--border-bright);
+  box-shadow: 0 0 30px rgba(0, 0, 0, 0.85);
+  padding: 12px 14px;
+  z-index: 2000;
+  pointer-events: none;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.tooltip-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.tooltip-name {
+  font-weight: 700;
+  font-size: 14.5px;
+}
+
+/* --- Rarity-Textfarben (unverändert übernommen) --- */
+.tooltip-name.common { color: #aaa; }
+.tooltip-name.uncommon { color: #4CAF50; }
+.tooltip-name.rare { color: #2196F3; }
+.tooltip-name.epic { color: #bf2fd8; }
+.tooltip-name.legendary { color: #FF9800; }
+.tooltip-name.spec { color: #ff0f0f; }
+
+.tooltip-header-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+
+.tooltip-rarity {
+  font-size: 11.5px;
+  text-transform: capitalize;
+}
+
+.tooltip-rarity.common { color: #aaa; }
+.tooltip-rarity.uncommon { color: #4CAF50; }
+.tooltip-rarity.rare { color: #2196F3; }
+.tooltip-rarity.epic { color: #bf2fd8; }
+.tooltip-rarity.legendary { color: #FF9800; }
+.tooltip-rarity.spec { color: #ff0f0f; }
+
+.tooltip-level {
+  font-size: 11.5px;
+  font-family: var(--font-num);
+  color: var(--text-dim);
+}
+
+.tooltip-type {
+  font-size: 11.5px;
+  font-variant: small-caps;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.tooltip-locked {
+  font-size: 11.5px;
+  font-variant: small-caps;
+  letter-spacing: 0.1em;
+  color: var(--negative);
+  margin-bottom: 6px;
+}
+
+.tooltip-stats {
+  margin-top: 6px;
+}
+
+.tooltip-stat {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 1.5px 0;
+  font-size: 12.5px;
+}
+
+.tooltip-stat-name {
+  color: var(--text-dim);
+}
+
+.tooltip-stat-value {
+  font-family: var(--font-num);
+  font-size: 12.5px;
+}
+
+.tooltip-stat-value.positive {
+  color: var(--positive);
+}
+
+.tooltip-stat-value.negative {
+  color: var(--negative);
+}
+
+.tooltip-description {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 12px;
+  font-style: italic;
+  line-height: 1.45;
+}
+
+.tooltip-rune-descriptions .tooltip-rune-description + .tooltip-rune-description {
+  margin-top: 6px;
+}
+
+.tooltip-rune-description-name {
+  font-style: normal;
+  color: var(--text-faint);
+}
+
+.tooltip-option-desc {
+  color: var(--text-faint);
+  font-size: 11px;
+  margin: 0 0 4px 10px;
+}
+
+/* ---------- Notifications (Souls-Banner) ---------- */
+
+.notification {
+  position: fixed;
+  top: 38%;
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 320px;
+  text-align: center;
+  padding: 14px 34px;
+  background: rgba(8, 8, 10, 0.92);
+  border-top: 1px solid var(--border-bright);
+  border-bottom: 1px solid var(--border-bright);
+  font-size: 15px;
+  font-variant: small-caps;
+  letter-spacing: 0.14em;
+  z-index: 3000;
+  animation: notifIn 0.35s ease-out;
+}
+
+@keyframes notifIn {
+  from { opacity: 0; letter-spacing: 0.3em; }
+  to { opacity: 1; letter-spacing: 0.14em; }
+}
+
+.notification.success {
+  color: var(--bone);
+}
+
+.notification.error {
+  color: var(--negative);
+}
+
+.notification.fade-out {
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+/* ---------- Klassen-Info-Modal ---------- */
+
+.class-info-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.class-info-modal {
+  position: relative;
+  width: min(620px, 92vw);
+  max-height: 85vh;
+  overflow-y: auto;
+  background: rgba(13, 13, 16, 0.98);
+  border: 1px solid var(--border-bright);
+  outline: 1px solid var(--border-dim);
+  outline-offset: 4px;
+  padding: 26px 30px;
+  color: var(--text);
+  box-shadow: 0 0 60px rgba(0, 0, 0, 0.9);
+}
+
+.class-info-modal h2 {
+  margin: 0 0 2px;
+  font-size: 1.45rem;
+  font-weight: 400;
+  font-variant: small-caps;
+  letter-spacing: 0.2em;
+  color: var(--bone);
+  text-shadow: 0 0 14px rgba(207, 198, 174, 0.25);
+}
+
+.class-info-modal h3 {
+  margin: 18px 0 8px;
+  font-size: 13px;
+  font-weight: 400;
+  font-variant: small-caps;
+  letter-spacing: 0.2em;
+  color: var(--soul);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+
+.class-info-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  width: 28px;
+  height: 28px;
+  background: rgba(0, 0, 0, 0.5);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  font-family: var(--font-main);
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.class-info-close:hover {
+  border-color: var(--negative);
+  color: var(--negative);
+}
+
+.class-info-parent {
+  color: var(--text-dim);
+  font-size: 12.5px;
+  font-style: italic;
+  margin-bottom: 8px;
+}
+
+.class-info-link {
+  color: var(--soul);
+  cursor: pointer;
+  text-decoration: underline;
+  font-style: normal;
+}
+
+.class-info-overview {
+  color: var(--text-dim);
+  font-size: 13.5px;
+  font-style: italic;
+  line-height: 1.55;
+  margin: 8px 0;
+}
+
+.class-info-stats div {
+  color: var(--positive);
+  font-family: var(--font-num);
+  font-size: 13px;
+  padding: 1px 0;
+}
+
+.class-info-skill {
+  display: flex;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Level-Spalte der Skill-Zeilen im Klassen-Info-Modal */
+.ability-level {
+  color: var(--soul);
+  font-family: var(--font-num);
+  font-size: 11px;
+  min-width: 36px;
+  flex-shrink: 0;
+}
+
+.class-info-skill .ability-level {
+  margin-top: 2px;
+}
+
+.class-info-skill-body {
+  min-width: 0;
+}
+
+.class-info-skill-name {
+  color: #e6e4df;
+  font-weight: 700;
+  font-size: 13.5px;
+}
+
+.class-info-skill-desc {
+  color: var(--text-dim);
+  font-size: 12.5px;
+  line-height: 1.45;
+  margin-top: 1px;
+}
+
+.class-info-skill-options {
+  margin-top: 5px;
+}
+
+.class-info-option-group {
+  color: var(--bone);
+  font-size: 12px;
+  margin-top: 5px;
+}
+
+.class-info-evolve-label {
+  color: var(--evolve);
+  font-variant: small-caps;
+  letter-spacing: 0.08em;
+}
+
+.class-info-option {
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.4;
+  margin: 2px 0 0 14px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border-bright);
+}
+
+.class-info-chosen-sub {
+  color: var(--soul) !important;
+  border-bottom-color: var(--soul) !important;
+  margin-top: 24px !important;
+}
+
+.class-info-subclasses {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.class-info-subclass-btn {
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  padding: 6px 16px;
+  cursor: pointer;
+  font-family: var(--font-main);
+  font-size: 12.5px;
+  font-variant: small-caps;
+  letter-spacing: 0.08em;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.class-info-subclass-btn:hover {
+  border-color: var(--soul);
+  color: var(--soul);
+}
+
+.class-info-subclass-btn.selected {
+  border-color: var(--bone);
+  color: var(--bone);
+  box-shadow: 0 0 8px rgba(207, 198, 174, 0.2);
+}
+
+/* ---------- Scrollbars ---------- */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-bright);
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 1400px) {
+  .class-area {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 1200px) {
+  .main-container {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .class-area {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 768px) {
+  .slot {
+    width: 78px;
+    height: 78px;
+    font-size: 10.5px;
+  }
+
+  .rune-slot {
+    width: 46px;
+    height: 46px;
+    font-size: 10px;
+  }
+
+  .item-menu {
+    width: 92vw;
+    left: 4vw;
+  }
+
+  .item-menu-content {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  h1 {
+    font-size: 1.2rem;
+    letter-spacing: 0.2em;
+  }
+}
+
+/* ---------- Unobtainable-Markierung ----------
+   Füllt die Lücken der Rarity-Textur (oben/unten mittig)
+   mit einem roten Band; liegt hinter dem Textur-Layer,
+   scheint also nur in den transparenten Lücken durch. */
+
+.slot.filled[data-unobtainable],
+.rune-slot.filled[data-unobtainable],
+.item-menu button[data-unobtainable] {
+  /* Trapezförmige Balken mit harten, angeschrägten Kanten — passend zum kantigen Stil der Textur */
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 12' preserveAspectRatio='none'%3E%3Cpolygon points='0,0 100,0 86,12 14,12' fill='%23ff0f0f'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 12' preserveAspectRatio='none'%3E%3Cpolygon points='14,0 86,0 100,12 0,12' fill='%23ff0f0f'/%3E%3C/svg%3E");
+  background-repeat: no-repeat, no-repeat;
+  background-position: top center, bottom center;
+  background-size: 60% 5%, 60% 5%;
+  box-shadow: inset 0 0 14px rgba(255, 15, 15, 0.25);
+}
+
+/* ---------- Community Hub ---------- */
+
+.community-hub-row {
+  margin-top: 7px;
+}
+
+.community-hub-open-btn {
+  width: 100%;
+  padding: 8px 6px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border-bright);
+  color: var(--soul);
+  font-family: var(--font-main);
+  font-size: 11.5px;
+  font-variant: small-caps;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.community-hub-open-btn:hover {
+  border-color: var(--soul);
+  color: var(--soul);
+  box-shadow: 0 0 10px rgba(143, 184, 201, 0.18);
+}
+
+.community-hub-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.community-hub-modal {
+  position: relative;
+  width: min(1180px, 96vw);
+  max-height: 90vh;
+  overflow-y: auto;
+  background: rgba(13, 13, 16, 0.98);
+  border: 1px solid var(--border-bright);
+  outline: 1px solid var(--border-dim);
+  outline-offset: 4px;
+  padding: 26px 30px;
+  color: var(--text);
+  box-shadow: 0 0 60px rgba(0, 0, 0, 0.9);
+}
+
+.community-hub-modal h2 {
+  margin: 0 0 18px;
+  text-align: center;
+  font-size: 1.45rem;
+  font-weight: 400;
+  font-variant: small-caps;
+  letter-spacing: 0.2em;
+  color: var(--bone);
+  text-shadow: 0 0 14px rgba(207, 198, 174, 0.25);
+}
+
+.community-upload {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.community-name-input {
+  flex: 1;
+  padding: 9px 12px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-main);
+  font-size: 13px;
+}
+
+.community-name-input:focus {
+  outline: none;
+  border-color: var(--soul);
+}
+
+.community-upload-btn {
+  flex-shrink: 0;
+  padding: 9px 18px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border-bright);
+  color: var(--text);
+  font-family: var(--font-main);
+  font-size: 11.5px;
+  font-variant: small-caps;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.community-upload-btn:hover {
+  border-color: var(--bone);
+  color: var(--bone);
+  box-shadow: 0 0 10px rgba(207, 198, 174, 0.18);
+}
+
+.community-upload-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.community-turnstile-row {
+  margin-bottom: 14px;
+  display: flex;
+  justify-content: center;
+}
+
+.community-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-variant: small-caps;
+  letter-spacing: 0.12em;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+  margin-bottom: 14px;
+}
+
+.community-list-header-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.community-refresh-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  width: 22px;
+  height: 22px;
+  line-height: 1;
+  cursor: pointer;
+  font-family: var(--font-main);
+}
+
+.community-refresh-btn:hover {
+  border-color: var(--soul);
+  color: var(--soul);
+}
+
+.community-admin-toggle-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-faint);
+  padding: 3px 9px;
+  height: 22px;
+  line-height: 1;
+  cursor: pointer;
+  font-family: var(--font-main);
+  font-size: 10.5px;
+  font-variant: small-caps;
+  letter-spacing: 0.08em;
+}
+
+.community-admin-toggle-btn:hover {
+  border-color: var(--soul);
+  color: var(--soul);
+}
+
+.community-admin-toggle-btn.active {
+  border-color: var(--negative);
+  color: var(--negative);
+}
+
+.community-admin-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.community-filter-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.community-filter-select {
+  flex: 1;
+  padding: 7px 10px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-main);
+  font-size: 12px;
+}
+
+.community-filter-select:focus {
+  outline: none;
+  border-color: var(--soul);
+}
+
+.community-list-status {
+  color: var(--text-faint);
+  font-size: 12.5px;
+  font-style: italic;
+  text-align: center;
+  padding: 20px 0;
+  grid-column: 1 / -1;
+}
+
+/* Zwei Builds pro Reihe, jede Kachel breit genug fuer alle sieben Klassen
+   in einer Zeile ("10 Warrior + 10 Archer + ... + 10 Samurai"). */
+.community-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 720px) {
+  .community-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.community-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-dim);
+  padding: 14px;
+}
+
+.community-card-preview {
+  width: 100%;
+  height: 160px;
+  display: flex;
+  padding: 8px;
+  border: 1px solid var(--border-dim);
+  background:
+    radial-gradient(ellipse at 50% 35%, rgba(143, 184, 201, 0.06), transparent 65%),
+    rgba(0, 0, 0, 0.35);
+  box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.85);
+  margin-bottom: 4px;
+}
+
+.community-card-preview .character-svg {
+  width: 100%;
+  height: 100%;
+}
+
+.community-card-name {
+  color: var(--bone);
+  font-size: 15px;
+  font-variant: small-caps;
+  letter-spacing: 0.08em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.community-card-race {
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.community-card-classes {
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.community-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.community-card-date {
+  color: var(--text-faint);
+  font-size: 10.5px;
+}
+
+.community-card-like-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 4px 10px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-family: var(--font-main);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.community-card-like-btn:hover {
+  border-color: var(--negative);
+  color: var(--negative);
+}
+
+.community-card-like-btn.liked {
+  border-color: var(--negative);
+  color: var(--negative);
+  box-shadow: 0 0 8px rgba(176, 98, 88, 0.3);
+}
+
+.community-card-like-btn.liked .community-card-like-icon {
+  text-shadow: 0 0 8px rgba(176, 98, 88, 0.6);
+}
+
+.community-card-like-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.community-card-like-icon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.community-card-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.community-card-load-btn,
+.community-card-delete-btn {
+  flex-shrink: 0;
+  padding: 5px 14px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border-bright);
+  color: var(--text);
+  font-family: var(--font-main);
+  font-size: 11px;
+  font-variant: small-caps;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.community-card-load-btn:hover {
+  border-color: var(--soul);
+  color: var(--soul);
+}
+
+.community-card-delete-btn {
+  border-color: var(--negative);
+  color: var(--negative);
+}
+
+.community-card-delete-btn:hover {
+  background: rgba(176, 98, 88, 0.15);
+  box-shadow: 0 0 10px rgba(176, 98, 88, 0.25);
+}
+
+.community-card-delete-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
