@@ -44,6 +44,7 @@ class Ability {
     rarity,
     kind,
     category,
+    element,
     level,
     requirement,
     description,
@@ -53,6 +54,9 @@ class Ability {
     this.rarity = rarity || 'common';
     this.kind = kind || 'active';        // 'active' | 'passive'
     this.category = category || 'spell'; // 'spell' | 'scroll' | 'passive'
+    // Nur Spells: 'Earth', 'Fire', ... — steht als "Fire Spell" auf der
+    // Kachel, null bei allem Elementlosen (Summoning Portal, Passives).
+    this.element = element || null;
     this.level = level ?? null;
     this.requirement = requirement || null;
     this.description = description || null;

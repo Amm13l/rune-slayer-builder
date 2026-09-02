@@ -895,10 +895,11 @@ function updateRuneMenu(menu, slotType, contentArea) {
          { skill, kind: 'active'|'passive', rarity, source, sourceKind, locked }
        ===================================================================== */
 
-    // Abilities tragen im Spiel eine eigene Rarity, die aber noch nirgends
-    // eingepflegt ist — deshalb sind erstmal alle common (grau). Sobald die
-    // echten Werte da sind, reicht ein `rarity: '...'` am jeweiligen Skill in
-    // classdata.js / races.js / abilities.js.
+    // Abilities tragen im Spiel eine eigene Rarity. Die equipbaren Spells in
+    // abilities.js haben sie schon; Klassen- und Rassen-Skills sind noch nicht
+    // eingepflegt und bleiben deshalb common (grau). Sobald die echten Werte
+    // da sind, reicht ein `rarity: '...'` am jeweiligen Skill in
+    // classdata.js / races.js.
     function abilityRarity(skill) {
         return skill.rarity || 'common';
     }
@@ -998,11 +999,19 @@ function updateRuneMenu(menu, slotType, contentArea) {
         return entries;
     }
 
+    // Quellen-Label einer equipbaren Ability: "Fire Spell", "Spell",
+    // "Passive". Es steht im Tooltip und wird von beiden Suchfeldern
+    // durchsucht — damit findet "fire" alle Feuer-Spells, nicht nur Fireball.
+    function abilitySource(ability) {
+        const category = ability.category.charAt(0).toUpperCase() + ability.category.slice(1);
+        return ability.element ? `${ability.element} ${category}` : category;
+    }
+
     // Bei Ability-Instanzen liest abilityRarity die eigene rarity direkt mit.
     function equippedAbilityEntries() {
         return equippedAbilities.map(ability => abilityEntry(ability, {
             kind: ability.kind,
-            source: ability.category.charAt(0).toUpperCase() + ability.category.slice(1),
+            source: abilitySource(ability),
             sourceKind: 'equipped'
         }));
     }
@@ -1598,7 +1607,7 @@ function updateRuneMenu(menu, slotType, contentArea) {
         const abilities = Object.entries(abilitiesDatabase)
             .map(([key, ability]) => ({ key, ability }))
             .filter(({ ability }) =>
-                ability.name.toLowerCase().includes(searchTerm) &&
+                `${ability.name} ${abilitySource(ability)}`.toLowerCase().includes(searchTerm) &&
                 (!selectedKind || ability.kind === selectedKind) &&
                 (!selectedCategory || ability.category === selectedCategory) &&
                 !equippedAbilities.some(a => a.name === ability.name))
@@ -1623,7 +1632,7 @@ function updateRuneMenu(menu, slotType, contentArea) {
 
             const entry = abilityEntry(ability, {
                 kind: ability.kind,
-                source: ability.category.charAt(0).toUpperCase() + ability.category.slice(1),
+                source: abilitySource(ability),
                 sourceKind: 'equipped'
             });
             button.addEventListener('mouseenter', () => {
