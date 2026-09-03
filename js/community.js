@@ -162,6 +162,15 @@ function buildCard(build, { isAdmin, isLiked }) {
     classesEl.textContent = classes || 'No class levels set';
     card.appendChild(classesEl);
 
+    // Die zuerst gewaehlte Klasse liefert die Passives — ohne sie sehen
+    // "10 Thief + 40 Striker" und "40 Striker + 10 Thief" identisch aus.
+    if (buildData.startingClass) {
+        const starter = document.createElement('div');
+        starter.className = 'community-card-starter';
+        starter.textContent = `Started as ${buildData.startingClass}`;
+        card.appendChild(starter);
+    }
+
     const footer = document.createElement('div');
     footer.className = 'community-card-footer';
     const date = document.createElement('span');

@@ -667,6 +667,8 @@ function updateRuneMenu(menu, slotType, contentArea) {
         const classList = document.getElementById('class-list');
         const totalLevelsDisplay = document.getElementById('total-levels');
         let totalLevels = 0;
+
+        initializeStartingClassSelect();
         
         Object.entries(classesDatabase).forEach(([className, classData]) => {
             const classItem = document.createElement('div');
@@ -811,6 +813,246 @@ function updateRuneMenu(menu, slotType, contentArea) {
         return select ? select.value : '';
     }
 
+    /* ---- Startklasse ("first class picked") -----------------------------
+       Die zuerst gewaehlte Klasse faerbt einen Teil des Passive-Baums ein,
+       ersetzt ihn aber NICHT komplett. themaninred im Discord (03.09.2026)
+       zu seinem Build "10 Thief, danach 40 Striker":
+
+         · Lv 35 gibt Thiefs "Momentum Builder" statt Strikers "Counter Force"
+         · Thiefs "Backstabber" (Lv 12) bekommt er trotzdem nicht
+         · Strikers "Tackle" (Lv 20) und "Pain Conversion" (Lv 32) hat er
+         · Lv 20 gibt "Gauntlet Mastery", nicht Thiefs "Dagger Mastery"
+         · 10 Warrior + 40 Magician bekommt kein "Magic Training"
+
+       Zwei Regeln erklaeren alle fuenf Beobachtungen:
+
+       1. Level-Slot-Tausch: hat die Startklasse auf demselben Level ein
+          eigenes Passive, bekommt man ihres statt dem der gelevelten Klasse.
+          Deckt Lv 35 (Momentum Builder) und Lv 6 (Focus Training) ab.
+          Backstabber (Lv 12) faellt raus, weil Striker dort nichts hat und
+          Thief nur auf Lv 10 steht; Tackle und Pain Conversion bleiben, weil
+          Thief auf Lv 20/32 nichts hat.
+       2. Training-Linie ist exklusiv: Focus Training und Magic Training sind
+          dieselbe Ressourcen-Passive in zwei Geschmacksrichtungen. Man behaelt
+          die der Startklasse, die andere kommt nie — auch nicht auf Leveln
+          ohne Kollision (Magic Training 1 steht auf Lv 11, Warrior hat da
+          nichts).
+
+       Weapon Mastery ist ausdruecklich ausgenommen, Gauntlet Mastery bleibt
+       Gauntlet Mastery. Thiefs Dagger Mastery steht aktuell ohnehin nur im
+       Beschreibungstext von Backstabber statt als eigener Eintrag — der
+       Filter haelt das Verhalten stabil, falls das nachgetragen wird.
+
+       3. Ruestungsklasse haengt allein am ersten Level: nur wer als Warrior
+          STARTET kann Heavy Armor tragen. Bestaetigt von Ammiel. Siehe
+          effectivePassiveFeatures() — die Waffen-Trainings danebendran
+          bleiben pro Klasse.
+
+       Unberuehrt bleiben Moves (actives), die Waffen-Trainings und alle
+       Skills einer Subklasse.
+
+       Wichtig fuers Level-Gating: die Schwellen werden weiter gegen das
+       Level der jeweiligen Klasse geprueft, NICHT gegen das Gesamtlevel.
+       Sonst waeren mit 10 Warrior + 4x10 anderen Klassen ploetzlich alle
+       Warrior-Passives bis Lv 50 offen, obwohl keine Klasse ueber Lv 10
+       steht. So bleibt die Obergrenze immer das hoechste Einzelklassenlevel.
+    --------------------------------------------------------------------- */
+
+    // "Focus Training", "Focus Training 2", "Magic Training 1", "Focus Training III" ...
+    const TRAINING_LINE = /^(Focus|Magic) Training\b/;
+    // "Sword Mastery", "Gauntlet Mastery", "Dagger Mastery" ...
+    const WEAPON_MASTERY = /\bMastery\b/;
+    // "Heavy Armor", "Medium Armor", "Light Armor" — Level-0-passiveFeature
+    const ARMOR_FEATURE = /^(Heavy|Medium|Light) Armor$/;
+
+    function getStartingClass() {
+        const select = document.getElementById('starting-class-select');
+        const value = select ? select.value : '';
+        return classesDatabase[value] ? value : '';
+    }
+
+    function trainingResource(skill) {
+        const hit = TRAINING_LINE.exec(skill.name);
+        return hit ? hit[1] : null;
+    }
+
+    // 'Focus' bei Warrior/Archer/Thief/Striker/Samurai, 'Magic' bei
+    // Magician/Priest.
+    function classTrainingResource(className) {
+        for (const skill of classInfoData[className]?.passiveSkills || []) {
+            const resource = trainingResource(skill);
+            if (resource) return resource;
+        }
+        return null;
+    }
+
+    // Welche Passives diese Klasse im aktuellen Build wirklich liefert, je
+    // Eintrag mit der Klasse, aus der er stammt. Nur Basisklassen werden
+    // angefasst — eine Subklasse behaelt ihre eigenen.
+    function effectivePassiveSkills(className) {
+        const own = classInfoData[className]?.passiveSkills || [];
+        const starter = getStartingClass();
+        if (!starter || !classesDatabase[className] || starter === className) {
+            return {
+                entries: own.map(skill => ({ skill, source: className })),
+                starter: '', swapped: false, levels: [], dropped: []
+            };
+        }
+
+        const starterResource = classTrainingResource(starter);
+
+        // Level -> Passives der Startklasse, die diesen Slot besetzen koennen
+        const byLevel = new Map();
+        (classInfoData[starter]?.passiveSkills || []).forEach(skill => {
+            if (skill.level === null || skill.level === undefined) return;
+            if (WEAPON_MASTERY.test(skill.name)) return;
+            if (!byLevel.has(skill.level)) byLevel.set(skill.level, []);
+            byLevel.get(skill.level).push(skill);
+        });
+
+        const entries = [];
+        const levels = [];
+        const dropped = [];
+        const taken = new Set();
+
+        own.forEach(skill => {
+            // Regel 2: die falsche Ressourcen-Linie faellt ersatzlos weg
+            const resource = trainingResource(skill);
+            if (resource && starterResource && resource !== starterResource) {
+                dropped.push(skill.name);
+                return;
+            }
+            // Regel 1: Level-Slot-Tausch, Weapon Mastery ausgenommen
+            const replacement = WEAPON_MASTERY.test(skill.name) ? null : byLevel.get(skill.level);
+            if (!replacement) {
+                entries.push({ skill, source: className });
+                return;
+            }
+            // Mehrere Passives auf demselben Level teilen sich den Slot; die
+            // Startklasse wird trotzdem nur einmal eingesetzt.
+            if (taken.has(skill.level)) return;
+            taken.add(skill.level);
+            levels.push(skill.level);
+            replacement.forEach(s => entries.push({ skill: s, source: starter }));
+        });
+
+        return {
+            entries,
+            starter,
+            swapped: !!levels.length || !!dropped.length,
+            levels: levels.sort((a, b) => a - b),
+            dropped
+        };
+    }
+
+    function armorFeature(className) {
+        return (classInfoData[className]?.passiveFeatures || [])
+            .find(skill => ARMOR_FEATURE.test(skill.name)) || null;
+    }
+
+    /* Ruestungsklasse haengt allein am ersten Level: nur wer als Warrior
+       STARTET kann Heavy Armor tragen, egal wie hoch der Striker daneben ist.
+       Weapon Trainings bleiben dagegen pro Klasse — wer Thief levelt, fuehrt
+       Daggers. Deshalb wird hier gezielt nur der Armor-Eintrag getauscht und
+       nicht, wie bei den passiveSkills, ueber die Levelzahl gematcht: auf
+       Level 0 stehen Waffen- und Ruestungsfreischaltung nebeneinander.
+
+       Im Spiel gibt es keine Item-Kategorie dafuer, die Ruestungsklasse ist
+       nur diese Passive — deshalb bleibt es hier bei der Anzeige und greift
+       nicht in die Item-Slots ein. */
+    function effectivePassiveFeatures(className) {
+        const own = classInfoData[className]?.passiveFeatures || [];
+        const starter = getStartingClass();
+        const plain = () => own.map(skill => ({ skill, source: className }));
+        if (!starter || !classesDatabase[className] || starter === className) {
+            return { entries: plain(), armorSwap: null };
+        }
+
+        const armor = armorFeature(starter);
+        if (!armor) return { entries: plain(), armorSwap: null };
+
+        let armorSwap = null;
+        const entries = own.map(skill => {
+            // Gleiche Ruestungsklasse (z.B. Thief-Start + Samurai, beide
+            // Medium Armor) — dann bleibt der eigene Eintrag stehen.
+            if (!ARMOR_FEATURE.test(skill.name) || skill.name === armor.name) {
+                return { skill, source: className };
+            }
+            armorSwap = { from: skill.name, to: armor.name };
+            return { skill: armor, source: starter };
+        });
+        return { entries, armorSwap };
+    }
+
+    function updateStartingClassNote() {
+        const note = document.getElementById('starting-class-note');
+        if (!note) return;
+        const starter = getStartingClass();
+        const resource = starter ? classTrainingResource(starter) : null;
+        const armor = starter ? armorFeature(starter) : null;
+        note.textContent = starter
+            ? `${armor ? `Only ${starter} armor: ${armor.name}. ` : ''}`
+                + `On levels where ${starter} has a passive of its own you get ${starter}'s `
+                + `version${resource ? `, and you stay on the ${resource} Training line` : ''}. `
+                + 'Everything else — moves, weapon training, weapon mastery, subclass skills '
+                + '— still comes from the class you level.'
+            : 'In game the class you picked first decides part of your passives. '
+                + 'Set it here and the right ones show up.';
+        note.classList.toggle('is-set', !!starter);
+    }
+
+    // Ein Satz, der genau benennt was die Startklasse an dieser Klasse
+    // aendert — die Kacheln allein sehen sonst nach Datenfehler aus.
+    // Nur ueber das berichten, was reingereicht wird: das "?"-Modal hat eine
+    // Zeile fuer alles, das Nachschlagewerk haengt Ruestung an die Passive
+    // Features und den Rest an die Passive Skills.
+    function startingClassNote(className, { passives, features } = {}) {
+        const armorSwap = features?.armorSwap;
+        const parts = [];
+        if (armorSwap) {
+            parts.push(`you wear ${armorSwap.to} instead of ${armorSwap.from}`);
+        }
+        if (passives?.levels.length) {
+            parts.push(`on Lv ${passives.levels.join(', Lv ')} you get `
+                + `${passives.starter}'s passive instead of ${className}'s`);
+        }
+        if (passives?.dropped.length) {
+            parts.push(`${passives.dropped.join(' and ')} never unlock`
+                + `${passives.dropped.length > 1 ? '' : 's'}`);
+        }
+        if (!parts.length) return null;
+        return `You started as ${getStartingClass()}: ${parts.join(', and ')}.`;
+    }
+
+    // Dropdown befuellen und verdrahten. Steht ausserhalb von #class-list,
+    // deshalb eigene Initialisierung statt im Klassen-Loop.
+    function initializeStartingClassSelect() {
+        const select = document.getElementById('starting-class-select');
+        if (!select) return;
+
+        Object.keys(classesDatabase).forEach(className => {
+            const opt = document.createElement('option');
+            opt.value = className;
+            opt.textContent = className;
+            select.appendChild(opt);
+        });
+
+        const onChange = () => {
+            updateStartingClassNote();
+            updateAbilitiesDisplay();
+        };
+        select.addEventListener('change', onChange);
+        select.addEventListener('input', onChange);
+        updateStartingClassNote();
+    }
+
+    function setStartingClass(className) {
+        const select = document.getElementById('starting-class-select');
+        if (!select) return;
+        select.value = [...select.options].some(o => o.value === className) ? className : '';
+        updateStartingClassNote();
+    }
+
     // Subklassen-Dropdowns nur zeigen, wenn die Klasse Level 30+ hat.
     // Die Auswahl bleibt erhalten (wichtig beim Editieren des Levels) —
     // Anzeige und Export filtern selbst auf Level >= 30.
@@ -943,9 +1185,29 @@ function updateRuneMenu(menu, slotType, contentArea) {
 
         // Basisklasse: das eigene Klassenlevel entscheidet
         const baseUnlocked = s => s.level !== null && s.level !== undefined && s.level <= level;
-        push(info.passiveFeatures, 'passive', className, baseUnlocked, level);
         push(info.actives, 'active', className, baseUnlocked, level);
-        push(info.passiveSkills, 'passive', className, baseUnlocked, level);
+
+        // Waffen-Trainings pro Klasse, Ruestungsklasse von der Startklasse.
+        effectivePassiveFeatures(className).entries.forEach(({ skill, source }) => {
+            const locked = !baseUnlocked(skill);
+            if (locked && !includeLocked) return;
+            entries.push(abilityEntry(skill, {
+                kind: 'passive', source, sourceKind: 'class', locked
+            }));
+        });
+
+        // Passives koennen aus der Startklasse stammen, die Level-Schwelle
+        // bleibt aber die DIESER Klasse — siehe getStartingClass(). Ein
+        // eingetauschtes Passive sitzt per Definition auf demselben Level,
+        // das Gating aendert sich dadurch also nicht. Passives haben keine
+        // Evolutionen, deshalb reicht hier der schlanke Eintrag.
+        effectivePassiveSkills(className).entries.forEach(({ skill, source }) => {
+            const locked = !baseUnlocked(skill);
+            if (locked && !includeLocked) return;
+            entries.push(abilityEntry(skill, {
+                kind: 'passive', source, sourceKind: 'class', locked
+            }));
+        });
 
         // Subklasse ab Klassenlevel 30; ihre Skills haengen am Gesamtlevel
         const subclass = getSubclassSelection(className);
@@ -1731,6 +1993,11 @@ function updateRuneMenu(menu, slotType, contentArea) {
         const entries = dedupeAbilityEntries(classAbilityEntries(className, { includeLocked: true }));
         const level = getClassLevel(className);
         const subclass = getSubclassSelection(className);
+        // Die Liste zeigt bereits die getauschten Passives — ohne Hinweis
+        // sieht es aus wie ein Datenfehler.
+        const passives = effectivePassiveSkills(className);
+        const swapNote = startingClassNote(className,
+            { passives, features: effectivePassiveFeatures(className) });
 
         const details = document.createElement('button');
         details.className = 'class-info-subclass-btn ability-modal-link';
@@ -1744,7 +2011,8 @@ function updateRuneMenu(menu, slotType, contentArea) {
             title: `${className} — Abilities`,
             subtitle: `Class level ${level}/50`
                 + (subclass ? ` · Subclass: ${subclass}` : '')
-                + ' — greyed-out abilities are not unlocked in this build yet.',
+                + ' — greyed-out abilities are not unlocked in this build yet.'
+                + (swapNote ? ` ${swapNote}` : ''),
             groups: [
                 { title: 'Active', entries: entries.filter(e => e.kind === 'active') },
                 { title: 'Passive', entries: entries.filter(e => e.kind === 'passive') }
@@ -1864,11 +2132,17 @@ function updateRuneMenu(menu, slotType, contentArea) {
             modal.appendChild(statsList);
         }
 
-        const addSkillSection = (titleText, skills, isPassive) => {
+        const addSkillSection = (titleText, skills, isPassive, note) => {
             if (!skills || !skills.length) return;
             const h = document.createElement('h3');
             h.textContent = titleText;
             modal.appendChild(h);
+            if (note) {
+                const n = document.createElement('p');
+                n.className = 'class-info-starter-note';
+                n.textContent = note;
+                modal.appendChild(n);
+            }
             skills.forEach(skill => {
                 const row = document.createElement('div');
                 row.className = 'class-info-skill';
@@ -1922,9 +2196,13 @@ function updateRuneMenu(menu, slotType, contentArea) {
             });
         };
 
-        addSkillSection('Passive Features', info.passiveFeatures, true);
+        // Das Nachschlagewerk zeigt weiter die echte Klassenliste — mit dem
+        // Hinweis, welche Eintraege die Startklasse im Build ersetzt.
+        addSkillSection('Passive Features', info.passiveFeatures, true,
+            startingClassNote(className, { features: effectivePassiveFeatures(className) }));
         addSkillSection('Active Skills', info.actives, false);
-        addSkillSection('Passive Skills', info.passiveSkills, true);
+        addSkillSection('Passive Skills', info.passiveSkills, true,
+            startingClassNote(className, { passives: effectivePassiveSkills(className) }));
 
         // Gewählte Subklasse direkt mit anzeigen statt sie erneut auswählen zu müssen
         const chosenSub = info.subclasses?.length ? getSubclassSelection(className) : '';
@@ -3191,6 +3469,10 @@ function gatherBuildData() {
         items: itemsData,
         runes: runesData,
         classes: classLevels,
+        // Bestimmt, aus welcher Klasse die Passives kommen — ohne das sind
+        // "10 Thief + 40 Striker" und "40 Striker + 10 Thief" nicht
+        // unterscheidbar, obwohl sie andere Passives haben.
+        startingClass: getStartingClass(),
         subclasses: subclasses,
         abilities: equippedAbilities.map(a => a.name),
         evolutions: { ...chosenEvolutions },
@@ -3470,6 +3752,10 @@ function gatherBuildData() {
             if (buildData.professionBonus !== undefined) {
                 document.getElementById('level60-professions').checked = buildData.professionBonus;
             }
+
+            // Aeltere Builds kennen das Feld nicht — dann bleibt es leer und
+            // jede Klasse zeigt wie bisher ihre eigenen Passives.
+            setStartingClass(buildData.startingClass || '');
 
             updateSubclassRows();
             document.querySelectorAll('.subclass-select').forEach(select => {
