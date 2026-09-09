@@ -2398,7 +2398,7 @@ const itemsDatabaseWeapons = {
     stats: {strength: 10, agility: 17, stamina: 8},
     type: 'katana',
     level: 45,
-    rarity: 'rare'
+    rarity: 'epic'
   }),
   SanguineKen: new Weapon({
     name: 'Sanguine Ken',
