@@ -824,14 +824,28 @@ function updateRuneMenu(menu, slotType, contentArea) {
          · Lv 20 gibt "Gauntlet Mastery", nicht Thiefs "Dagger Mastery"
          · 10 Warrior + 40 Magician bekommt kein "Magic Training"
 
-       Zwei Regeln erklaeren alle fuenf Beobachtungen:
+       Dazu ein Bugreport aus dem Discord (09.09.2026): "i started warrior and
+       it didnt show the counterforce passive".
 
-       1. Level-Slot-Tausch: hat die Startklasse auf demselben Level ein
-          eigenes Passive, bekommt man ihres statt dem der gelevelten Klasse.
-          Deckt Lv 35 (Momentum Builder) und Lv 6 (Focus Training) ab.
-          Backstabber (Lv 12) faellt raus, weil Striker dort nichts hat und
-          Thief nur auf Lv 10 steht; Tackle und Pain Conversion bleiben, weil
-          Thief auf Lv 20/32 nichts hat.
+       1. Die Startklasse bringt ihre Passives mit. Auf Leveln, wo die
+          gelevelte Klasse auch eines hat, gewinnt die Startklasse — das ist
+          Lv 35 (Momentum Builder statt Counter Force) und Lv 6 (Focus
+          Training). Alles andere kommt zusaetzlich dazu; Tackle und Pain
+          Conversion bleiben, weil Thief auf Lv 20/32 nichts hat.
+
+          Frueher hing das am exakten Level-Slot: die Startklasse kam nur
+          durch, wenn die gelevelte Klasse zufaellig auf DERSELBEN Levelzahl
+          etwas hatte. Damit verlor Warrior-Start sein Counter Force (Lv 35),
+          sobald daneben Magician, Priest oder Samurai stand — die drei haben
+          auf Lv 35 nichts. Genau der Bugreport oben. Warrior + Priest verlor
+          sogar alle Warrior-Passives.
+
+          Preis der Aenderung: Thiefs "Backstabber" (Lv 12) kommt jetzt mit,
+          obwohl themaninred es laut Report nicht hatte. Ammiel hat sich dafuer
+          entschieden — sein Thief stand auf Lv 10, das Passive braucht 12, das
+          erklaert die Beobachtung genauso gut. Falls sich rausstellt, dass
+          wirklich nur das hoechste Passive der Startklasse mitkommt, ist die
+          Stelle unten die einzige, die sich aendern muss.
        2. Training-Linie ist exklusiv: Focus Training und Magic Training sind
           dieselbe Ressourcen-Passive in zwei Geschmacksrichtungen. Man behaelt
           die der Startklasse, die andere kommt nie — auch nicht auf Leveln
@@ -895,20 +909,20 @@ function updateRuneMenu(menu, slotType, contentArea) {
         if (!starter || !classesDatabase[className] || starter === className) {
             return {
                 entries: own.map(skill => ({ skill, source: className })),
-                starter: '', swapped: false, levels: [], dropped: []
+                starter: '', swapped: false, levels: [], added: [], dropped: []
             };
         }
 
         const starterResource = classTrainingResource(starter);
 
-        // Level -> Passives der Startklasse, die diesen Slot besetzen koennen
-        const byLevel = new Map();
-        (classInfoData[starter]?.passiveSkills || []).forEach(skill => {
-            if (skill.level === null || skill.level === undefined) return;
-            if (WEAPON_MASTERY.test(skill.name)) return;
-            if (!byLevel.has(skill.level)) byLevel.set(skill.level, []);
-            byLevel.get(skill.level).push(skill);
-        });
+        // Was die Startklasse mitbringt. Weapon Mastery ist ausgenommen und
+        // bleibt bei der Klasse, die man tatsaechlich levelt.
+        const carried = (classInfoData[starter]?.passiveSkills || []).filter(skill =>
+            skill.level !== null && skill.level !== undefined
+            && !WEAPON_MASTERY.test(skill.name));
+
+        // Die Level, auf denen die Startklasse den Slot besetzt
+        const starterLevels = new Set(carried.map(skill => skill.level));
 
         const entries = [];
         const levels = [];
@@ -922,25 +936,39 @@ function updateRuneMenu(menu, slotType, contentArea) {
                 dropped.push(skill.name);
                 return;
             }
-            // Regel 1: Level-Slot-Tausch, Weapon Mastery ausgenommen
-            const replacement = WEAPON_MASTERY.test(skill.name) ? null : byLevel.get(skill.level);
-            if (!replacement) {
+            // Regel 1: auf besetzten Leveln gewinnt die Startklasse. Die eigene
+            // Weapon Mastery ist ausgenommen und bleibt immer stehen.
+            if (WEAPON_MASTERY.test(skill.name) || !starterLevels.has(skill.level)) {
                 entries.push({ skill, source: className });
                 return;
             }
-            // Mehrere Passives auf demselben Level teilen sich den Slot; die
-            // Startklasse wird trotzdem nur einmal eingesetzt.
-            if (taken.has(skill.level)) return;
-            taken.add(skill.level);
-            levels.push(skill.level);
-            replacement.forEach(s => entries.push({ skill: s, source: starter }));
+            // Mehrere Passives auf demselben Level teilen sich den Slot — der
+            // Hinweistext soll das Level trotzdem nur einmal nennen.
+            if (!taken.has(skill.level)) {
+                taken.add(skill.level);
+                levels.push(skill.level);
+            }
         });
+
+        // Der Rest der Startklasse kommt dazu, auch auf Leveln, wo die
+        // gelevelte Klasse gar nichts hat — sonst haengt es am Zufall, ob die
+        // beiden Klassen dieselben Levelzahlen benutzen.
+        const added = [];
+        carried.forEach(skill => {
+            entries.push({ skill, source: starter });
+            if (!taken.has(skill.level)) added.push(skill.name);
+        });
+
+        // Beide Seiten zusammen ergeben sonst keine Reihenfolge — und die
+        // Rohdaten sind selbst nicht durchgehend nach Level sortiert.
+        entries.sort((a, b) => (a.skill.level ?? 0) - (b.skill.level ?? 0));
 
         return {
             entries,
             starter,
-            swapped: !!levels.length || !!dropped.length,
+            swapped: !!levels.length || !!added.length || !!dropped.length,
             levels: levels.sort((a, b) => a - b),
+            added,
             dropped
         };
     }
@@ -992,8 +1020,9 @@ function updateRuneMenu(menu, slotType, contentArea) {
         const armor = starter ? armorFeature(starter) : null;
         note.textContent = starter
             ? `${armor ? `Only ${starter} armor: ${armor.name}. ` : ''}`
-                + `On levels where ${starter} has a passive of its own you get ${starter}'s `
-                + `version${resource ? `, and you stay on the ${resource} Training line` : ''}. `
+                + `You keep ${starter}'s passives`
+                + `${resource ? `, including the ${resource} Training line` : ''} — `
+                + `where both classes have one on the same level, ${starter}'s wins. `
                 + 'Everything else — moves, weapon training, weapon mastery, subclass skills '
                 + '— still comes from the class you level.'
             : 'In game the class you picked first decides part of your passives. '
@@ -1015,6 +1044,14 @@ function updateRuneMenu(menu, slotType, contentArea) {
         if (passives?.levels.length) {
             parts.push(`on Lv ${passives.levels.join(', Lv ')} you get `
                 + `${passives.starter}'s passive instead of ${className}'s`);
+        }
+        if (passives?.added.length) {
+            // Bei Priest daneben sind das sieben Namen — die Liste soll ein
+            // Satz bleiben, deshalb ab dem vierten nur noch zaehlen.
+            const rest = passives.added.length - 3;
+            parts.push(`you also keep ${passives.starter}'s `
+                + `${passives.added.slice(0, 3).join(', ')}`
+                + `${rest > 0 ? ` and ${rest} more` : ''}`);
         }
         if (passives?.dropped.length) {
             parts.push(`${passives.dropped.join(' and ')} never unlock`
@@ -1198,8 +1235,9 @@ function updateRuneMenu(menu, slotType, contentArea) {
 
         // Passives koennen aus der Startklasse stammen, die Level-Schwelle
         // bleibt aber die DIESER Klasse — siehe getStartingClass(). Ein
-        // eingetauschtes Passive sitzt per Definition auf demselben Level,
-        // das Gating aendert sich dadurch also nicht. Passives haben keine
+        // mitgebrachtes Passive bringt seine eigene Levelzahl mit (Warriors
+        // Counter Force will Lv 35, egal welche Klasse man levelt), gemessen
+        // wird sie gegen das Level dieser Klasse. Passives haben keine
         // Evolutionen, deshalb reicht hier der schlanke Eintrag.
         effectivePassiveSkills(className).entries.forEach(({ skill, source }) => {
             const locked = !baseUnlocked(skill);
