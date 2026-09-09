@@ -203,6 +203,45 @@
         }
     }
 
+    /* ---- Klassen-Voraussetzung -----------------------------------------
+       Ein paar Items haengen nicht am Charakterlevel, sondern an EINER
+       Klasse (item.classRequirement, siehe types.js): Sanguinaire will
+       Samurai 50, Gift of Suveria's Sacred Light Priest 40. Die restlichen
+       Level zaehlen nicht mit — 40 Warrior + 10 Samurai reicht fuer die
+       Sanguinaire also nicht, 10 Warrior + 40 Priest fuer das Gift schon.
+       Nicht erfuellt: im Menue ausgegraut und nicht anklickbar, der rote
+       Kasten im Tooltip sagt warum. */
+    function classRequirementMet(item) {
+        const req = item?.classRequirement;
+        if (!req) return true;
+        return getClassLevel(req.className) >= req.level;
+    }
+
+    function markClassRequirement(element, item) {
+        if (classRequirementMet(item)) {
+            element.removeAttribute('data-req-unmet');
+        } else {
+            element.setAttribute('data-req-unmet', '');
+        }
+    }
+
+    // Klassenlevel aendern sich per Eingabefeld — Ausgrauen im offenen Menue,
+    // Slot-Markierung und der rote Hinweis im Panel muessen sofort mitziehen.
+    function refreshClassRequirements() {
+        for (const [slotKey, item] of Object.entries(equippedItems)) {
+            if (!item?.classRequirement) continue;
+            const element = slotElementFor(slotKey);
+            if (element) markClassRequirement(element, item);
+            updateSlotPanel(slotKey);
+        }
+
+        const menu = currentOpenMenu?.menu;
+        const slotType = menu?.dataset.slotType;
+        if (menu && slotType && !['rune', 'ability', 'evolution'].includes(slotType)) {
+            updateItemMenu(menu, slotType, menu.querySelector('.item-menu-content'));
+        }
+    }
+
     // Rune-Slots liegen im selben .slot-wrap wie ihr Ausruestungsslot.
     function equipmentSlotKeyOf(runeSlot) {
         return runeSlot.closest('.slot-wrap')?.querySelector('.slot')?.dataset.slot;
@@ -777,6 +816,7 @@ function updateRuneMenu(menu, slotType, contentArea) {
             updateSubclassRows();
             updateTotalStatsDisplay();
             updateAbilitiesDisplay();
+            refreshClassRequirements();
         }
         
         function showLevelWarning() {
@@ -2871,12 +2911,21 @@ function initializeRuneFilters(menu, slotType, contentArea) {
         botao.setAttribute('data-item-key', key);
         botao.setAttribute('data-slot-type', slotType);
         markUnobtainable(botao, item);
+        markClassRequirement(botao, item);
         
         botao.onclick = () => {
+            if (!classRequirementMet(item)) {
+                const req = item.classRequirement;
+                showNotification(
+                    `${nome} requires ${req.className} level ${req.level}`, true);
+                return;
+            }
+
             const slot = currentOpenMenu.slot;
             slot.className = 'slot filled';
             slot.setAttribute('data-rarity', item.rarity || 'common');
             markUnobtainable(slot, item);
+            markClassRequirement(slot, item);
             slot.innerHTML = `
                 <div class="slot-content">${nome}</div>
                 <div class="remove-item"></div>
@@ -3114,6 +3163,7 @@ function restoreFilters(menu, slotType) {
         slot.className = 'slot';
         slot.removeAttribute('data-rarity');
     slot.removeAttribute('data-unobtainable');
+    slot.removeAttribute('data-req-unmet');
         slot.innerHTML = slot.dataset.slot.charAt(0).toUpperCase() + slot.dataset.slot.slice(1);
         equippedItems[slotKey] = null;
         clearRunesOfSlot(slotKey);
@@ -3159,6 +3209,27 @@ function createItemTooltipContent(item) {
         header.appendChild(nameElement);
         header.appendChild(headerRight);
         tooltipContent.appendChild(header);
+
+        // Steht direkt unter dem Namen, damit der Hinweis vor allen Stats
+        // gelesen wird — er entscheidet ja, ob die Stats ueberhaupt zaehlen.
+        if (!classRequirementMet(item)) {
+            const req = item.classRequirement;
+            const requirement = document.createElement('div');
+            requirement.className = 'tooltip-requirement';
+
+            const headline = document.createElement('div');
+            headline.className = 'tooltip-requirement-headline';
+            headline.textContent = 'Cannot equip';
+
+            const detail = document.createElement('div');
+            detail.className = 'tooltip-requirement-detail';
+            detail.textContent = `Requires ${req.className} level ${req.level}`
+                + ` — you have ${req.className} ${getClassLevel(req.className)}`;
+
+            requirement.appendChild(headline);
+            requirement.appendChild(detail);
+            tooltipContent.appendChild(requirement);
+        }
         
         if (item.type && item.type !== 'null') {
             const typeElement = document.createElement('div');
@@ -3718,6 +3789,7 @@ function gatherBuildData() {
                             slotElement.className = 'slot filled';
                             slotElement.setAttribute('data-rarity', item.rarity || 'common');
                             markUnobtainable(slotElement, item);
+                            markClassRequirement(slotElement, item);
                             slotElement.innerHTML = `
                                 <div class="slot-content">${item.name}</div>
                                 <div class="remove-item"></div>

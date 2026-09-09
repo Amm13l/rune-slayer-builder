@@ -1994,7 +1994,8 @@ const itemsDatabaseWeapons = {
     type: 'sword',
     level: 50,
     rarity: 'legendary',
-    description: '(Specs - unobtainable) Requires Priest 40. When using Holy Light, gain 15% defense for 5 seconds.'
+    classRequirement: {className: 'Priest', level: 40},
+    description: '(Specs - unobtainable) When using Holy Light, gain 15% defense for 5 seconds.'
   }),
 
 
@@ -2424,6 +2425,7 @@ const itemsDatabaseWeapons = {
     type: 'katana',
     level: 50,
     rarity: 'legendary',
+    classRequirement: {className: 'Samurai', level: 50},
     description: 'You are attuned to the blood of Velor Yth Carven, your Agility is increased based off your Strength.'
   }),
 

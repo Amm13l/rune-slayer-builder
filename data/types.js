@@ -72,6 +72,7 @@ class Item {
     runes,
     runeslots,
     description,
+    classRequirement,
   }) {
     this.name = name;
     this.rarity = rarity || 'common';
@@ -79,6 +80,11 @@ class Item {
     this.runes = runes || {};
     this.runeslots = runeslots || 0;
     this.description = description || null;
+    /* Haengt ein Item an EINER Klasse statt am Charakterlevel, steht die
+       Huerde hier: { className: 'Samurai', level: 50 }. Wie sich die
+       restlichen Level verteilen, ist egal — 40 Warrior + 10 Samurai
+       erfuellt "Samurai 50" also nicht. null = keine Klassenhuerde. */
+    this.classRequirement = classRequirement || null;
   }
 }
 
