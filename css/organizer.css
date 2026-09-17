@@ -2493,16 +2493,26 @@ h1::after {
   line-height: 1.4;
 }
 
+/* Die Kacheln einer Grid-Reihe sind gleich hoch, ihr Inhalt nicht (Tags,
+   Rasse, Startklasse fehlen mal). margin-top: auto drueckt den Footer daher
+   immer an den Kachel-Boden — sonst sitzen die Buttons nebeneinander
+   liegender Kacheln unterschiedlich hoch. Das padding haelt den Abstand, wenn
+   kein Platz uebrig ist.
+   Waagerecht: Datum links, alle Buttons rechts gepackt statt space-between.
+   So stehen Daumen, ℹ und Load in jeder Kachel an derselben Stelle, egal wie
+   breit Datum oder Stift sind. */
 .community-card-footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;   /* umgebrochene Zeilen ebenfalls rechtsbuendig */
   gap: 8px;
   flex-wrap: wrap;
-  margin-top: 6px;
+  margin-top: auto;
+  padding-top: 6px;
 }
 
 .community-card-date {
+  margin-right: auto;
   color: var(--text-faint);
   font-size: 10.5px;
 }
@@ -2555,7 +2565,12 @@ h1::after {
   cursor: default;
 }
 
+/* Platz fuer drei Ziffern, linksbuendig hinter dem Daumen: "5", "12" und
+   "123" ergeben gleich breite Buttons, die Zahlen fangen an derselben Stelle
+   an. */
 .community-card-vote-count {
+  min-width: 3ch;
+  text-align: left;
   font-variant-numeric: tabular-nums;
 }
 
@@ -2621,10 +2636,27 @@ h1::after {
 
 /* Info und Likes gehoeren zusammen (beides "was andere ueber den Build
    wissen"), Load/Delete bleiben als Aktionen rechts davon. */
+/* Feste Spalten statt Flex: die Stift-Spalte existiert in jeder Kachel, auch
+   ohne Build-Key (dann bleibt sie leer). Dadurch ist der Button-Block ueberall
+   exakt gleich breit — und bei schmalen Fenstern brechen entweder alle
+   Kacheln um oder keine, statt nur die mit Stift. */
 .community-card-meta {
-  display: flex;
+  display: grid;
+  grid-template-columns: 24px 24px auto;
   align-items: center;
-  gap: 6px;
+  column-gap: 6px;
+}
+
+.community-card-meta .community-card-edit-btn {
+  grid-column: 1;
+}
+
+.community-card-meta .community-card-info-btn {
+  grid-column: 2;
+}
+
+.community-card-meta .community-card-votes {
+  grid-column: 3;
 }
 
 .community-card-info-btn {

@@ -314,15 +314,10 @@ function buildCard(build, { isAdmin = false, myVote = null, preview = false } = 
     const meta = document.createElement('div');
     meta.className = 'community-card-meta';
 
-    const infoBtn = document.createElement('button');
-    infoBtn.className = 'community-card-info-btn';
-    infoBtn.title = 'Build details';
-    infoBtn.setAttribute('aria-label', 'Build details');
-    infoBtn.textContent = 'ℹ';
-    meta.appendChild(infoBtn);
-
     // Der Stift erscheint nur, wenn beim Upload ein Build-Key gesetzt wurde.
     // Sichtbar ist er fuer alle — nutzen kann ihn nur, wer den Key kennt.
+    // Er steht ganz links: die Buttons sind rechtsbuendig gepackt, so bleiben
+    // ℹ und die Daumen in Kacheln mit und ohne Key an derselben Stelle.
     let editBtn = null;
     if (build.hasKey && !preview) {
         editBtn = document.createElement('button');
@@ -332,6 +327,13 @@ function buildCard(build, { isAdmin = false, myVote = null, preview = false } = 
         editBtn.innerHTML = ICON_PENCIL;
         meta.appendChild(editBtn);
     }
+
+    const infoBtn = document.createElement('button');
+    infoBtn.className = 'community-card-info-btn';
+    infoBtn.title = 'Build details';
+    infoBtn.setAttribute('aria-label', 'Build details');
+    infoBtn.textContent = 'ℹ';
+    meta.appendChild(infoBtn);
 
     const votes = voteButtons({
         likes: build.likesCount ?? 0,
