@@ -9,17 +9,40 @@ import { Resvg, initWasm } from 'npm:@resvg/resvg-wasm@2.6.2';
 // Commit gepinnt: Supabase' Bundler laedt nicht von github.io, und der Pin
 // macht jeden Deploy reproduzierbar. Nach Aenderungen an Items oder
 // Silhouetten den Hash auf den neuen Commit setzen und neu deployen.
-import { buildCharacterSVG } from 'https://cdn.jsdelivr.net/gh/Amm13l/rune-slayer-builder@3c3223735e9505c796895ea4d63be09776f052e7/js/character.js';
-import { buildGear, classBreakdown, isBuildEmpty } from 'https://cdn.jsdelivr.net/gh/Amm13l/rune-slayer-builder@3c3223735e9505c796895ea4d63be09776f052e7/js/buildGear.js';
+import { buildCharacterSVG } from 'https://cdn.jsdelivr.net/gh/Amm13l/rune-slayer-builder@0b1c0f4dda275b0bdc3dfc312e696cbbdf17d218/js/character.js';
+import { buildGear, classBreakdown, isBuildEmpty } from 'https://cdn.jsdelivr.net/gh/Amm13l/rune-slayer-builder@0b1c0f4dda275b0bdc3dfc312e696cbbdf17d218/js/buildGear.js';
 import { buildMessageComponents, EMBED_COLOR } from '../_shared/discordBuild.ts';
 
-const RESVG_WASM_URL = 'https://unpkg.com/@resvg/resvg-wasm@2.6.2/index_bg.wasm';
+// Jede Instanz startet frisch und muss die ~2,4 MB Render-Engine neu laden.
+// Zuerst jsDelivr: dieselbe Datei wie bei unpkg (MD5 geprueft), aber Brotli
+// statt gzip (906 statt 947 KB) und dauerhaft gecacht; gemessen 0,47–0,52 s
+// gegenueber 0,56–0,96 s bei unpkg. unpkg bleibt als Ausweichquelle, damit ein
+// Ausfall von jsDelivr keine Build-Posts verschluckt.
+const RESVG_WASM_URLS = [
+    'https://cdn.jsdelivr.net/npm/@resvg/resvg-wasm@2.6.2/index_bg.wasm',
+    'https://unpkg.com/@resvg/resvg-wasm@2.6.2/index_bg.wasm'
+];
 const DISCORD_CHANNEL_ID = '1543542286967906355'; // #build-uploads
+
+// Nur Netz-/HTTP-Fehler fuehren zur naechsten Quelle. initWasm selbst wird
+// genau einmal aufgerufen — die Bibliothek erlaubt keinen zweiten Versuch.
+async function fetchWasm(): Promise<Response> {
+    for (const url of RESVG_WASM_URLS) {
+        try {
+            const res = await fetch(url);
+            if (res.ok) return res;
+            console.error('resvg wasm source failed', url, res.status);
+        } catch (err) {
+            console.error('resvg wasm source failed', url, err);
+        }
+    }
+    throw new Error('resvg wasm could not be downloaded from any source');
+}
 
 let wasmReady: Promise<void> | null = null;
 function ensureWasm(): Promise<void> {
     if (!wasmReady) {
-        wasmReady = initWasm(fetch(RESVG_WASM_URL)).then(() => undefined);
+        wasmReady = initWasm(fetchWasm()).then(() => undefined);
     }
     return wasmReady;
 }

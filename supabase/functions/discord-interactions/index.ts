@@ -7,13 +7,22 @@
 //
 // Abgestimmt wird ueber cast_build_vote — dieselbe Postgres-Function wie im
 // Web-Hub, damit beide Seiten nach denselben Regeln zaehlen.
-import nacl from 'npm:tweetnacl@1.0.3';
+//
+// Geschwindigkeit: Die Datenbank steht in eu-west-1 (Irland). Ohne Vorgabe
+// fuehrt Supabase die Function nahe am Aufrufer aus — bei Discord also in
+// us-east-1, und jeder DB-Aufruf ging ueber den Atlantik (gemessen: Median
+// 316–419 ms statt 32 ms). Die Interactions Endpoint URL im Discord
+// Developer Portal haengt deshalb ?forceFunctionRegion=eu-west-1 an: Discords
+// Anfrage ueber den Atlantik kostet ueber Supabase' Backbone nur ~50 ms.
+// Jeder Klick startet ausserdem eine frische Instanz, Boot-Kosten zaehlen also
+// bei jedem Klick — daher native Kryptografie statt einer JS-Bibliothek.
+
 // Dasselbe buildInfo.js wie der Hub, statt einer Kopie — so zeigt Discord
 // garantiert dieselben Infos. Ueber jsDelivr und auf einen Commit gepinnt:
 // Supabase' Bundler laedt nicht von github.io, und der Pin macht jeden
 // Deploy reproduzierbar. Nach Aenderungen an Items, Runen oder Abilities den
 // Hash auf den neuen Commit setzen und neu deployen.
-import { buildInfoModel, MAX_TOTAL_LEVEL } from 'https://cdn.jsdelivr.net/gh/Amm13l/rune-slayer-builder@3c3223735e9505c796895ea4d63be09776f052e7/js/buildInfo.js';
+import { buildInfoModel, MAX_TOTAL_LEVEL } from 'https://cdn.jsdelivr.net/gh/Amm13l/rune-slayer-builder@0b1c0f4dda275b0bdc3dfc312e696cbbdf17d218/js/buildInfo.js';
 import { buildMessageComponents, renderInfoEmbed } from '../_shared/discordBuild.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -37,7 +46,10 @@ function serviceHeaders(extra: Record<string, string> = {}) {
     };
 }
 
-function hexToBytes(hex: string): Uint8Array {
+const HEX_RE = /^[0-9a-f]*$/i;
+
+function hexToBytes(hex: string): Uint8Array | null {
+    if (hex.length % 2 !== 0 || !HEX_RE.test(hex)) return null;
     const bytes = new Uint8Array(hex.length / 2);
     for (let i = 0; i < bytes.length; i++) {
         bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
@@ -45,15 +57,37 @@ function hexToBytes(hex: string): Uint8Array {
     return bytes;
 }
 
+/* Ed25519 ueber WebCrypto statt tweetnacl: nativ statt reinem JS (lokal
+   gemessen 0,15 ms statt 5,5 ms pro Pruefung, im frischen Prozess ~3 statt
+   ~8 ms) und ein npm-Paket weniger, das jede frische Instanz laden muss.
+   Der Schluessel wird einmal pro Instanz importiert. */
+let publicKeyPromise: Promise<CryptoKey> | null = null;
+function discordPublicKey(): Promise<CryptoKey> {
+    if (!publicKeyPromise) {
+        const raw = hexToBytes(DISCORD_PUBLIC_KEY);
+        publicKeyPromise = raw
+            ? crypto.subtle.importKey('raw', raw, { name: 'Ed25519' }, false, ['verify'])
+            : Promise.reject(new Error('DISCORD_PUBLIC_KEY is not valid hex'));
+    }
+    return publicKeyPromise;
+}
+
 async function verifySignature(req: Request, rawBody: string): Promise<boolean> {
-    const signature = req.headers.get('X-Signature-Ed25519');
+    const signature = hexToBytes(req.headers.get('X-Signature-Ed25519') || '');
     const timestamp = req.headers.get('X-Signature-Timestamp');
-    if (!signature || !timestamp) return false;
-    return nacl.sign.detached.verify(
-        new TextEncoder().encode(timestamp + rawBody),
-        hexToBytes(signature),
-        hexToBytes(DISCORD_PUBLIC_KEY)
-    );
+    // Ed25519-Signaturen sind immer 64 Bytes; alles andere gar nicht erst pruefen.
+    if (!signature || signature.length !== 64 || !timestamp) return false;
+    try {
+        return await crypto.subtle.verify(
+            { name: 'Ed25519' },
+            await discordPublicKey(),
+            signature,
+            new TextEncoder().encode(timestamp + rawBody)
+        );
+    } catch (err) {
+        console.error('signature check failed', err);
+        return false;
+    }
 }
 
 async function hashIdentity(discordUserId: string): Promise<string> {
