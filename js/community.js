@@ -33,8 +33,7 @@ const MIN_KEY_LENGTH = 8;
 // Muss mit ALLOWED_TAGS in supabase/functions/upload-community-build
 // uebereinstimmen — der Server verwirft alles, was er nicht kennt.
 const AVAILABLE_TAGS = [
-    'PvP', 'PvE', 'Boss Killer', 'Grinding', 'Endgame', 'Low Level',
-    'Budget', 'Tank', 'High Damage', 'Support', 'Mobility', 'Fun'
+    'PvP', 'PvE', 'Crit', 'Minmaxxed', 'Tank', 'Meta', 'Off-Meta'
 ];
 
 // Reihenfolge im Info-Panel, angelehnt an das Ausruestungs-Panel:

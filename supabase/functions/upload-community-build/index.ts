@@ -28,16 +28,11 @@ const MIN_KEY_LENGTH = 8;
 const ALLOWED_TAGS = [
   "PvP",
   "PvE",
-  "Boss Killer",
-  "Grinding",
-  "Endgame",
-  "Low Level",
-  "Budget",
+  "Crit",
+  "Minmaxxed",
   "Tank",
-  "High Damage",
-  "Support",
-  "Mobility",
-  "Fun",
+  "Meta",
+  "Off-Meta",
 ];
 
 const corsHeaders = {
