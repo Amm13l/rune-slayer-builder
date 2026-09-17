@@ -17,6 +17,11 @@ const MAX_NAME_LENGTH = 60;
 const MAX_DESCRIPTION_LENGTH = 500;
 const MAX_TAGS = 3;
 
+// Optionaler Build-Key: damit kann der Uploader sein Build spaeter noch
+// bearbeiten oder loeschen (siehe manage-community-build). Gehasht wird in
+// Postgres (bcrypt, set_build_key) — der Klartext verlaesst diese Function nie.
+const MIN_KEY_LENGTH = 8;
+
 // Autoritative Tag-Liste. Muss mit AVAILABLE_TAGS in js/community.js
 // uebereinstimmen; die DB prueft nur Anzahl und leere Strings, damit ein
 // neuer Tag keine Migration braucht.
@@ -99,6 +104,7 @@ Deno.serve(async (req) => {
     build_data: buildData,
     description,
     tags,
+    buildKey,
     turnstileToken,
   } = payload || {};
 
@@ -115,6 +121,18 @@ Deno.serve(async (req) => {
   if (cleanDescription.length > MAX_DESCRIPTION_LENGTH) {
     return json(
       { error: `Description must be ${MAX_DESCRIPTION_LENGTH} characters or fewer` },
+      400
+    );
+  }
+  if (buildKey != null && typeof buildKey !== "string") {
+    return json({ error: "Invalid build key" }, 400);
+  }
+  // Getrimmt, weil ein versehentliches Leerzeichen am Ende sonst dauerhaft
+  // zum Key gehoert und niemand mehr an sein Build kommt.
+  const cleanKey = typeof buildKey === "string" ? buildKey.trim() : "";
+  if (cleanKey && cleanKey.length < MIN_KEY_LENGTH) {
+    return json(
+      { error: `Build key must be at least ${MIN_KEY_LENGTH} characters` },
       400
     );
   }
@@ -175,14 +193,16 @@ Deno.serve(async (req) => {
 
   // 3) Build einfuegen (Service Role umgeht RLS — das ist hier gewollt,
   //    da die Pruefungen oben schon erfolgt sind)
-  const { error: insertError } = await supabase
+  const { data: inserted, error: insertError } = await supabase
     .from("community_builds")
     .insert([{
       name: name.trim(),
       build_data: buildData,
       description: cleanDescription || null,
       tags: cleanTags(tags),
-    }]);
+    }])
+    .select("id")
+    .single();
 
   if (insertError) {
     console.error("insert failed", insertError);
@@ -192,5 +212,28 @@ Deno.serve(async (req) => {
   // 4) Diesen Versuch fuers Rate-Limit vormerken
   await supabase.from("upload_rate_limit").insert([{ ip_hash: ipHash }]);
 
-  return json({ success: true }, 200);
+  // 5) Key hinterlegen. set_build_key setzt Hash und has_key in einer
+  //    Transaktion — es gibt also nie einen Stift ohne Key. Schlaegt es
+  //    fehl, steht das Build trotzdem schon drin: dann ehrlich melden
+  //    statt "success" zu behaupten, sonst notiert sich jemand einen Key,
+  //    der nirgends hinterlegt ist.
+  if (cleanKey) {
+    const { error: keyError } = await supabase.rpc("set_build_key", {
+      p_build_id: inserted.id,
+      p_key: cleanKey,
+    });
+
+    if (keyError) {
+      console.error("set_build_key failed", keyError);
+      return json(
+        {
+          error:
+            "Build was uploaded, but the build key could not be saved — it has no key",
+        },
+        500
+      );
+    }
+  }
+
+  return json({ success: true, id: inserted.id, has_key: Boolean(cleanKey) }, 200);
 });

@@ -9,6 +9,7 @@ const SUPABASE_URL = 'https://nzvkfczphpvkvfsquzmy.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56dmtmY3pwaHB2a3Zmc3F1em15Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODczMzgxODYsImV4cCI6MjEwMjkxNDE4Nn0.FkS0H0BCUElZprYQwJwGRzG8IUXjOQPClpA0c_SF6fY';
 const TABLE_URL = `${SUPABASE_URL}/rest/v1/community_builds`;
 const UPLOAD_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/upload-community-build`;
+const MANAGE_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/manage-community-build`;
 const LIKE_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/toggle-community-build-like`;
 const ADMIN_CODE_STORAGE_KEY = 'rsCommunityAdminCode';
 const LIKED_BUILDS_STORAGE_KEY = 'rsCommunityLikedBuilds';
@@ -20,6 +21,12 @@ const TURNSTILE_SITE_KEY = '0x4AAAAAAEdxNMmr2l5UazeC';
 const MAX_NAME_LENGTH = 60;
 const MAX_DESCRIPTION_LENGTH = 500;
 const MAX_TAGS = 3;
+
+// Build-Key: optional beim Upload, danach der einzige Weg, das eigene Build
+// ohne Account noch zu aendern oder zu loeschen. Der Key wird nie gespeichert
+// (weder hier noch in localStorage) — geprueft wird serverseitig gegen einen
+// bcrypt-Hash, den nur der Service-Role-Key erreicht.
+const MIN_KEY_LENGTH = 8;
 
 // Feste Auswahl statt Freitext: so bleiben die Kacheln lesbar, der Tag-Filter
 // im Hub hat ein endliches Vokabular und es gibt nichts zu moderieren.
@@ -50,6 +57,26 @@ const INFO_SLOTS = [
 
 const RUNE_SLOT_NUMBERS = ['I', 'II', 'III', 'IV', 'V', 'VI'];
 
+/* Stift und Papierkorb als Inline-SVG statt als Emoji: die Serifenschrift
+   der Seite hat fuer ✏ und 🗑 kein Glyph und ersetzt sie durch unleserliche
+   Balken. `currentColor` laesst zudem die CSS-Farbe durchgreifen, ein
+   Farb-Emoji wuerde das ignorieren. Feste Strings, kein Nutzerinput. */
+const ICON_PENCIL = `
+<svg class="community-icon" viewBox="0 0 16 16" aria-hidden="true">
+  <path d="M10.9 1.7 14.3 5.1 5.4 14 1.5 14.5 2.1 10.6 Z" fill="none"
+        stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+  <path d="M9.3 3.3 12.7 6.7" fill="none" stroke="currentColor" stroke-width="1.4"/>
+</svg>`;
+
+const ICON_TRASH = `
+<svg class="community-icon" viewBox="0 0 16 16" aria-hidden="true">
+  <path d="M2.6 4.3h10.8M6.2 2.3h3.6M4.2 4.3l.7 9.4h6.2l.7-9.4" fill="none"
+        stroke="currentColor" stroke-width="1.4" stroke-linecap="round"
+        stroke-linejoin="round"/>
+  <path d="M6.6 6.6v4.6M9.4 6.6v4.6" fill="none" stroke="currentColor"
+        stroke-width="1.2" stroke-linecap="round"/>
+</svg>`;
+
 // Abilities stehen im Build nur als Name — die Rarity (und damit die Farbe)
 // muss hier nachgeschlagen werden.
 const ABILITY_BY_NAME = new Map(
@@ -66,7 +93,9 @@ function supabaseHeaders(extra = {}) {
 
 async function fetchCommunityBuilds(sortBy = 'likes') {
     const order = sortBy === 'likes' ? 'likes_count.desc,created_at.desc' : 'created_at.desc';
-    const columns = 'id,name,description,tags,created_at,build_data,likes_count';
+    // has_key ist nur ein Flag — die Hashes selbst liegen in
+    // community_build_keys, wo anon keinerlei Zugriff hat.
+    const columns = 'id,name,description,tags,has_key,created_at,build_data,likes_count';
     const res = await fetch(`${TABLE_URL}?select=${columns}&order=${order}&limit=100`, {
         headers: supabaseHeaders()
     });
@@ -118,7 +147,7 @@ function setLikedBuildIds(ids) {
 // prueft den Turnstile-Token bei Cloudflare, hat ein Rate-Limit pro IP und
 // schreibt erst danach mit dem Service-Role-Key (RLS erlaubt anon keine
 // direkten Inserts mehr — Bots, die die REST-API direkt anfragen, laufen ins Leere).
-async function uploadCommunityBuild({ name, description, tags, buildData, turnstileToken }) {
+async function uploadCommunityBuild({ name, description, tags, buildKey, buildData, turnstileToken }) {
     const res = await fetch(UPLOAD_FUNCTION_URL, {
         method: 'POST',
         headers: supabaseHeaders({ 'Content-Type': 'application/json' }),
@@ -126,6 +155,7 @@ async function uploadCommunityBuild({ name, description, tags, buildData, turnst
             name,
             description,
             tags,
+            buildKey,
             build_data: buildData,
             turnstileToken
         })
@@ -133,6 +163,23 @@ async function uploadCommunityBuild({ name, description, tags, buildData, turnst
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
         throw new Error(data.error || `Upload failed (${res.status})`);
+    }
+    return data;
+}
+
+// Verifizieren, Aendern und Loeschen per Build-Key. Laeuft bewusst ueber die
+// Edge Function und nicht als RPC: verify_build_key ist fuer anon gesperrt,
+// sonst haette man ein oeffentliches Orakel zum Durchprobieren von Keys.
+// Die Function begrenzt zusaetzlich die Fehlversuche pro IP.
+async function manageCommunityBuild(action, buildId, key, extra = {}) {
+    const res = await fetch(MANAGE_FUNCTION_URL, {
+        method: 'POST',
+        headers: supabaseHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ action, build_id: buildId, key, ...extra })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        throw new Error(data.error || `Request failed (${res.status})`);
     }
     return data;
 }
@@ -268,6 +315,18 @@ function buildCard(build, { isAdmin = false, isLiked = false, preview = false } 
     infoBtn.textContent = 'ℹ';
     meta.appendChild(infoBtn);
 
+    // Der Stift erscheint nur, wenn beim Upload ein Build-Key gesetzt wurde.
+    // Sichtbar ist er fuer alle — nutzen kann ihn nur, wer den Key kennt.
+    let editBtn = null;
+    if (build.hasKey && !preview) {
+        editBtn = document.createElement('button');
+        editBtn.className = 'community-card-edit-btn';
+        editBtn.title = 'Edit or delete with the build key';
+        editBtn.setAttribute('aria-label', 'Edit or delete with the build key');
+        editBtn.innerHTML = ICON_PENCIL;
+        meta.appendChild(editBtn);
+    }
+
     const likeBtn = document.createElement('button');
     likeBtn.className = 'community-card-like-btn' + (isLiked ? ' liked' : '');
     likeBtn.title = preview ? 'Likes' : (isLiked ? 'Unlike' : 'Like');
@@ -307,7 +366,7 @@ function buildCard(build, { isAdmin = false, isLiked = false, preview = false } 
 
     card.appendChild(footer);
 
-    return { card, loadBtn, deleteBtn, likeBtn, likeCount, infoBtn };
+    return { card, loadBtn, deleteBtn, likeBtn, likeCount, infoBtn, editBtn };
 }
 
 /* ------------------------------- Info-Panel -------------------------------
@@ -527,7 +586,10 @@ export function initCommunityHub({ gatherBuildData, loadBuildData, showNotificat
 
     let overlay = null;
     let modal = null;
-    let infoOverlay = null;
+    // Oberste Ebene ueber dem Hub-Modal: Info-Panel ODER Key-Eingabe. Beide
+    // teilen sich denselben Slot, damit sie sich nicht stapeln koennen und
+    // Escape immer nur eine Ebene schliesst.
+    let overlayTop = null;
     let adminCode = sessionStorage.getItem(ADMIN_CODE_STORAGE_KEY) || null;
     let likedIds = getLikedBuildIds();
 
@@ -543,8 +605,9 @@ export function initCommunityHub({ gatherBuildData, loadBuildData, showNotificat
     let tagSelectEl = null;
 
     // Entwurf des Publish-Menues. Ueberlebt einen Abstecher zurueck in die
-    // Liste und wird erst nach einem erfolgreichen Upload geleert.
-    let draft = { name: '', description: '', tags: new Set() };
+    // Liste und wird erst nach einem erfolgreichen Upload geleert. Wird
+    // mutiert, nie neu zugewiesen — der Editor haelt eine Referenz darauf.
+    const draft = { name: '', description: '', key: '', tags: new Set() };
 
     let turnstileWidgetId = null;
     let turnstileToken = '';
@@ -557,15 +620,15 @@ export function initCommunityHub({ gatherBuildData, loadBuildData, showNotificat
         turnstileToken = '';
     }
 
-    function closeInfo() {
-        if (!infoOverlay) return false;
-        infoOverlay.remove();
-        infoOverlay = null;
+    function closeTopOverlay() {
+        if (!overlayTop) return false;
+        overlayTop.remove();
+        overlayTop = null;
         return true;
     }
 
     function closeModal() {
-        closeInfo();
+        closeTopOverlay();
         destroyTurnstile();
         if (overlay) {
             overlay.remove();
@@ -574,26 +637,92 @@ export function initCommunityHub({ gatherBuildData, loadBuildData, showNotificat
         }
     }
 
-    function openInfo(build) {
-        closeInfo();
-        infoOverlay = document.createElement('div');
-        infoOverlay.className = 'community-info-overlay';
-        infoOverlay.addEventListener('click', (e) => {
-            if (e.target === infoOverlay) closeInfo();
+    // Gemeinsame Huelle fuer Info-Panel und Key-Eingabe.
+    function openTopOverlay(extraClass = '') {
+        closeTopOverlay();
+        overlayTop = document.createElement('div');
+        overlayTop.className = 'community-info-overlay';
+        overlayTop.addEventListener('click', (e) => {
+            if (e.target === overlayTop) closeTopOverlay();
         });
 
         const panel = document.createElement('div');
-        panel.className = 'community-info-modal';
+        panel.className = 'community-info-modal' + (extraClass ? ` ${extraClass}` : '');
 
         const closeBtn = document.createElement('button');
         closeBtn.className = 'class-info-close';
         closeBtn.textContent = '×';
-        closeBtn.addEventListener('click', closeInfo);
+        closeBtn.addEventListener('click', closeTopOverlay);
         panel.appendChild(closeBtn);
 
-        panel.appendChild(buildInfoContent(build));
-        infoOverlay.appendChild(panel);
-        document.body.appendChild(infoOverlay);
+        overlayTop.appendChild(panel);
+        document.body.appendChild(overlayTop);
+        return panel;
+    }
+
+    function openInfo(build) {
+        openTopOverlay().appendChild(buildInfoContent(build));
+    }
+
+    /* Der Stift auf der Kachel fragt zuerst den Key ab. Geprueft wird
+       serverseitig (manage-community-build), die Function begrenzt dabei die
+       Fehlversuche pro IP — hier gibt es absichtlich keinen Hinweis darauf,
+       ob ein Key "fast" richtig war. */
+    function openKeyPrompt(row) {
+        const panel = openTopOverlay('community-key-modal');
+
+        const heading = document.createElement('h2');
+        heading.textContent = 'Build Key';
+        panel.appendChild(heading);
+
+        const note = document.createElement('p');
+        note.className = 'community-info-description';
+        note.textContent = `Enter the key for "${row.name}" to edit or delete it.`;
+        panel.appendChild(note);
+
+        const row1 = document.createElement('div');
+        row1.className = 'community-admin-row';
+        const input = document.createElement('input');
+        input.type = 'password';
+        input.className = 'community-name-input';
+        input.placeholder = 'Build key';
+        input.autocomplete = 'off';
+        const submitBtn = document.createElement('button');
+        submitBtn.className = 'community-upload-btn';
+        submitBtn.textContent = 'Unlock';
+        row1.appendChild(input);
+        row1.appendChild(submitBtn);
+        panel.appendChild(row1);
+
+        const hint = document.createElement('div');
+        hint.className = 'community-field-note';
+        hint.textContent = 'Lost the key? Nobody can recover it — the build can only be removed by a moderator.';
+        panel.appendChild(hint);
+
+        async function submit() {
+            const key = input.value.trim();
+            if (key.length < MIN_KEY_LENGTH) {
+                showNotification(`Build keys are at least ${MIN_KEY_LENGTH} characters`, true);
+                return;
+            }
+            submitBtn.disabled = true;
+            try {
+                await manageCommunityBuild('verify', row.id, key);
+                closeTopOverlay();
+                showEditView(row, key);
+            } catch (err) {
+                console.error(err);
+                showNotification(err.message || 'Wrong build key', true);
+                submitBtn.disabled = false;
+                input.select();
+            }
+        }
+
+        submitBtn.addEventListener('click', submit);
+        input.addEventListener('keydown', e => {
+            if (e.key === 'Enter') submit();
+        });
+        input.focus();
     }
 
     // Leert den Modal-Inhalt fuer einen Ansichtswechsel und setzt den
@@ -673,11 +802,12 @@ export function initCommunityHub({ gatherBuildData, loadBuildData, showNotificat
                 name: row.name,
                 description: row.description,
                 tags: row.tags || [],
+                hasKey: Boolean(row.has_key),
                 created_at: row.created_at,
                 buildData: row.build_data,
                 likesCount: row.likes_count
             };
-            const { card, loadBtn, deleteBtn, likeBtn, likeCount, infoBtn } = buildCard(build, {
+            const { card, loadBtn, deleteBtn, likeBtn, likeCount, infoBtn, editBtn } = buildCard(build, {
                 isAdmin: Boolean(adminCode),
                 isLiked: likedIds.has(row.id)
             });
@@ -687,6 +817,10 @@ export function initCommunityHub({ gatherBuildData, loadBuildData, showNotificat
                 build.likesCount = row.likes_count;
                 openInfo(build);
             });
+
+            if (editBtn) {
+                editBtn.addEventListener('click', () => openKeyPrompt(row));
+            }
 
             loadBtn.addEventListener('click', () => {
                 loadBuildData(row.build_data);
@@ -918,33 +1052,24 @@ export function initCommunityHub({ gatherBuildData, loadBuildData, showNotificat
         refreshGrid(grid);
     }
 
-    /* ---------------------------- Publish-Ansicht ----------------------------
-       Links die Metadaten, rechts live die Kachel, wie sie im Hub landet.
-       `buildData` ist der Schnappschuss vom Klick auf "Upload Current Build" —
-       Vorschau und Upload zeigen damit garantiert dasselbe Build, auch wenn
-       im Hintergrund weitergebastelt wird. */
+    /* ------------------------ Metadaten-Editor (geteilt) ---------------------
+       Unterbau von Publish- und Edit-Ansicht: links Name/Description/Tags,
+       rechts live die Kachel, wie sie im Hub aussieht. Der Aufrufer haengt
+       danach seine eigenen Bedienelemente an `form` (Key-Feld und Turnstile
+       beim Publish, Speichern/Loeschen beim Bearbeiten).
 
-    function showPublishView(buildData) {
-        resetModalShell();
+       `state` wird direkt mutiert, damit der Publish-Entwurf einen Abstecher
+       in die Liste uebersteht. `getBuildData()` statt eines festen Werts,
+       weil die Edit-Ansicht die Ausruestung unterwegs austauschen kann. */
 
-        const title = document.createElement('h2');
-        title.textContent = 'Publish Build';
-        modal.appendChild(title);
-
-        const backBtn = document.createElement('button');
-        backBtn.className = 'community-back-btn';
-        backBtn.textContent = '← Back to Hub';
-        backBtn.addEventListener('click', showHubView);
-        modal.appendChild(backBtn);
-
+    function buildMetaEditor({ state, getBuildData, submit }) {
         const layout = document.createElement('div');
         layout.className = 'community-publish-layout';
 
-        /* --- linke Spalte: Formular --- */
         const form = document.createElement('div');
         form.className = 'community-publish-form';
 
-        function field(labelText, inputId, counterEl) {
+        function field(labelText, inputId, counterEl, parent = form) {
             const wrap = document.createElement('div');
             wrap.className = 'community-field';
             const head = document.createElement('div');
@@ -956,20 +1081,25 @@ export function initCommunityHub({ gatherBuildData, loadBuildData, showNotificat
             head.appendChild(label);
             if (counterEl) head.appendChild(counterEl);
             wrap.appendChild(head);
-            form.appendChild(wrap);
+            parent.appendChild(wrap);
             return wrap;
         }
 
+        // Eigene Zeile, damit das Key-Feld beim Publish daneben passt.
+        const nameRow = document.createElement('div');
+        nameRow.className = 'community-field-row';
+        form.appendChild(nameRow);
+
         const nameCounter = document.createElement('span');
         nameCounter.className = 'community-field-counter';
-        const nameWrap = field('Build Name', 'community-build-name', nameCounter);
+        const nameWrap = field('Build Name', 'community-build-name', nameCounter, nameRow);
         const nameInput = document.createElement('input');
         nameInput.type = 'text';
         nameInput.id = 'community-build-name';
         nameInput.className = 'community-name-input';
         nameInput.placeholder = 'e.g. Bleed Katana Duelist';
         nameInput.maxLength = MAX_NAME_LENGTH;
-        nameInput.value = draft.name;
+        nameInput.value = state.name;
         nameWrap.appendChild(nameInput);
 
         const descCounter = document.createElement('span');
@@ -981,7 +1111,7 @@ export function initCommunityHub({ gatherBuildData, loadBuildData, showNotificat
         descInput.rows = 5;
         descInput.maxLength = MAX_DESCRIPTION_LENGTH;
         descInput.placeholder = 'How it plays, what it is for, what to level first…';
-        descInput.value = draft.description;
+        descInput.value = state.description;
         descWrap.appendChild(descInput);
         const descNote = document.createElement('div');
         descNote.className = 'community-field-note';
@@ -999,8 +1129,8 @@ export function initCommunityHub({ gatherBuildData, loadBuildData, showNotificat
             btn.className = 'community-tag-option';
             btn.textContent = tag;
             btn.addEventListener('click', () => {
-                if (draft.tags.has(tag)) draft.tags.delete(tag);
-                else draft.tags.add(tag);
+                if (state.tags.has(tag)) state.tags.delete(tag);
+                else state.tags.add(tag);
                 syncTagButtons();
                 renderPreview();
             });
@@ -1008,15 +1138,6 @@ export function initCommunityHub({ gatherBuildData, loadBuildData, showNotificat
             return { tag, btn };
         });
         tagWrap.appendChild(tagPicker);
-
-        const turnstileRow = document.createElement('div');
-        turnstileRow.className = 'community-turnstile-row';
-        form.appendChild(turnstileRow);
-
-        const publishBtn = document.createElement('button');
-        publishBtn.className = 'community-publish-btn';
-        publishBtn.textContent = 'Publish to Community Hub';
-        form.appendChild(publishBtn);
 
         /* --- rechte Spalte: Live-Vorschau der Kachel --- */
         const previewCol = document.createElement('div');
@@ -1035,26 +1156,21 @@ export function initCommunityHub({ gatherBuildData, loadBuildData, showNotificat
 
         layout.appendChild(form);
         layout.appendChild(previewCol);
-        modal.appendChild(layout);
 
         function orderedTags() {
-            return AVAILABLE_TAGS.filter(tag => draft.tags.has(tag));
-        }
-
-        function draftBuild() {
-            return {
-                name: draft.name.trim() || 'Unnamed Build',
-                description: draft.description,
-                tags: orderedTags(),
-                created_at: null,
-                buildData,
-                likesCount: 0
-            };
+            return AVAILABLE_TAGS.filter(tag => state.tags.has(tag));
         }
 
         function renderPreview() {
             previewSlot.innerHTML = '';
-            const build = draftBuild();
+            const build = {
+                name: state.name.trim() || 'Unnamed Build',
+                description: state.description,
+                tags: orderedTags(),
+                created_at: null,
+                buildData: getBuildData(),
+                likesCount: 0
+            };
             const { card, infoBtn } = buildCard(build, { preview: true });
             infoBtn.addEventListener('click', () => openInfo(build));
             previewSlot.appendChild(card);
@@ -1063,34 +1179,111 @@ export function initCommunityHub({ gatherBuildData, loadBuildData, showNotificat
         // Ueber MAX_TAGS hinaus wird nicht gemeckert, sondern deaktiviert —
         // eine Fehlermeldung fuer einen Klick, der nichts tun soll, waere Laerm.
         function syncTagButtons() {
-            const full = draft.tags.size >= MAX_TAGS;
+            const full = state.tags.size >= MAX_TAGS;
             tagButtons.forEach(({ tag, btn }) => {
-                const active = draft.tags.has(tag);
+                const active = state.tags.has(tag);
                 btn.classList.toggle('active', active);
                 btn.disabled = !active && full;
             });
-            tagCounter.textContent = `${draft.tags.size}/${MAX_TAGS}`;
+            tagCounter.textContent = `${state.tags.size}/${MAX_TAGS}`;
         }
 
         function syncCounters() {
-            nameCounter.textContent = `${draft.name.length}/${MAX_NAME_LENGTH}`;
-            descCounter.textContent = `${draft.description.length}/${MAX_DESCRIPTION_LENGTH}`;
+            nameCounter.textContent = `${state.name.length}/${MAX_NAME_LENGTH}`;
+            descCounter.textContent = `${state.description.length}/${MAX_DESCRIPTION_LENGTH}`;
         }
 
         nameInput.addEventListener('input', () => {
-            draft.name = nameInput.value;
+            state.name = nameInput.value;
             syncCounters();
             renderPreview();
         });
         descInput.addEventListener('input', () => {
-            draft.description = descInput.value;
+            state.description = descInput.value;
             syncCounters();
+        });
+        nameInput.addEventListener('keydown', e => {
+            if (e.key === 'Enter') submit();
         });
 
         syncCounters();
         syncTagButtons();
         renderPreview();
-        nameInput.focus();
+
+        return { layout, form, nameRow, nameInput, previewNote, orderedTags, renderPreview };
+    }
+
+    /* ---------------------------- Publish-Ansicht ----------------------------
+       `buildData` ist der Schnappschuss vom Klick auf "Upload Current Build" —
+       Vorschau und Upload zeigen damit garantiert dasselbe Build, auch wenn
+       im Hintergrund weitergebastelt wird. */
+
+    function showPublishView(buildData) {
+        resetModalShell();
+
+        const title = document.createElement('h2');
+        title.textContent = 'Publish Build';
+        modal.appendChild(title);
+
+        const backBtn = document.createElement('button');
+        backBtn.className = 'community-back-btn';
+        backBtn.textContent = '← Back to Hub';
+        backBtn.addEventListener('click', showHubView);
+        modal.appendChild(backBtn);
+
+        const editor = buildMetaEditor({
+            state: draft,
+            getBuildData: () => buildData,
+            submit: () => publish()
+        });
+
+        /* --- Build-Key, direkt neben dem Namen --- */
+        const keyWrap = document.createElement('div');
+        keyWrap.className = 'community-field community-field-key';
+        const keyHead = document.createElement('div');
+        keyHead.className = 'community-field-head';
+        const keyLabel = document.createElement('label');
+        keyLabel.className = 'community-field-label';
+        keyLabel.textContent = 'Build Key';
+        keyLabel.setAttribute('for', 'community-build-key');
+        const keyOptional = document.createElement('span');
+        keyOptional.className = 'community-field-counter';
+        keyOptional.textContent = 'optional';
+        keyHead.appendChild(keyLabel);
+        keyHead.appendChild(keyOptional);
+        keyWrap.appendChild(keyHead);
+        const keyInput = document.createElement('input');
+        keyInput.type = 'text';
+        keyInput.id = 'community-build-key';
+        keyInput.className = 'community-name-input';
+        keyInput.placeholder = `At least ${MIN_KEY_LENGTH} characters`;
+        keyInput.autocomplete = 'off';
+        keyInput.maxLength = 120;
+        keyInput.value = draft.key;
+        keyWrap.appendChild(keyInput);
+        editor.nameRow.appendChild(keyWrap);
+
+        const keyNote = document.createElement('div');
+        keyNote.className = 'community-field-note';
+        keyNote.textContent =
+            'Set a key and you can edit or delete this build later — anyone who knows it can. '
+            + 'Write it down: it cannot be recovered, and without it the build is permanent. '
+            + 'Leave it empty and the build gets no ✏ button.';
+        editor.form.insertBefore(keyNote, editor.form.children[1]);
+
+        keyInput.addEventListener('input', () => { draft.key = keyInput.value; });
+
+        const turnstileRow = document.createElement('div');
+        turnstileRow.className = 'community-turnstile-row';
+        editor.form.appendChild(turnstileRow);
+
+        const publishBtn = document.createElement('button');
+        publishBtn.className = 'community-publish-btn';
+        publishBtn.textContent = 'Publish to Community Hub';
+        editor.form.appendChild(publishBtn);
+
+        modal.appendChild(editor.layout);
+        editor.nameInput.focus();
 
         waitForTurnstile()
             .then(ts => {
@@ -1118,12 +1311,13 @@ export function initCommunityHub({ gatherBuildData, loadBuildData, showNotificat
             const name = draft.name.trim();
             if (!name) {
                 showNotification('Please enter a build name', true);
-                nameInput.focus();
+                editor.nameInput.focus();
                 return;
             }
-            const description = draft.description.trim();
-            if (description.length > MAX_DESCRIPTION_LENGTH) {
-                showNotification(`Description must be ${MAX_DESCRIPTION_LENGTH} characters or fewer`, true);
+            const buildKey = draft.key.trim();
+            if (buildKey && buildKey.length < MIN_KEY_LENGTH) {
+                showNotification(`Build key must be at least ${MIN_KEY_LENGTH} characters`, true);
+                keyInput.focus();
                 return;
             }
             if (isBuildEmpty(buildData)) {
@@ -1139,13 +1333,20 @@ export function initCommunityHub({ gatherBuildData, loadBuildData, showNotificat
             try {
                 await uploadCommunityBuild({
                     name,
-                    description,
-                    tags: orderedTags(),
+                    description: draft.description.trim(),
+                    tags: editor.orderedTags(),
+                    buildKey,
                     buildData,
                     turnstileToken
                 });
-                showNotification('Build uploaded to Community Hub!');
-                draft = { name: '', description: '', tags: new Set() };
+                showNotification(buildKey
+                    ? 'Build uploaded — keep your build key safe!'
+                    : 'Build uploaded to Community Hub!');
+                // Mutieren statt neu zuweisen: der Editor haelt eine Referenz.
+                draft.name = '';
+                draft.description = '';
+                draft.key = '';
+                draft.tags.clear();
                 showHubView();
             } catch (err) {
                 console.error(err);
@@ -1156,9 +1357,138 @@ export function initCommunityHub({ gatherBuildData, loadBuildData, showNotificat
         }
 
         publishBtn.addEventListener('click', publish);
-        nameInput.addEventListener('keydown', e => {
+        keyInput.addEventListener('keydown', e => {
             if (e.key === 'Enter') publish();
         });
+    }
+
+    /* ------------------------------ Edit-Ansicht ------------------------------
+       Erreichbar nur ueber den Stift plus richtigen Key. Der Key liegt
+       ausschliesslich in dieser Closure — nicht in localStorage, nicht in der
+       URL — und ist weg, sobald die Ansicht verlassen wird. */
+
+    function showEditView(row, key) {
+        resetModalShell();
+
+        const state = {
+            name: row.name || '',
+            description: row.description || '',
+            tags: new Set(row.tags || [])
+        };
+
+        // Ausruestung bleibt unangetastet, solange der Haken nicht gesetzt ist:
+        // wer nur einen Tippfehler im Namen fixt, soll nicht sein Build
+        // ueberschreiben, das gerade zufaellig im Builder steht.
+        let replaceBuild = false;
+        const originalBuildData = row.build_data;
+        let swappedBuildData = null;
+
+        const editor = buildMetaEditor({
+            state,
+            getBuildData: () => (replaceBuild && swappedBuildData) || originalBuildData,
+            submit: () => save()
+        });
+
+        const title = document.createElement('h2');
+        title.textContent = 'Edit Build';
+        modal.appendChild(title);
+
+        const backBtn = document.createElement('button');
+        backBtn.className = 'community-back-btn';
+        backBtn.textContent = '← Back to Hub';
+        backBtn.addEventListener('click', showHubView);
+        modal.appendChild(backBtn);
+
+        const replaceLabel = document.createElement('label');
+        replaceLabel.className = 'community-replace-row';
+        const replaceBox = document.createElement('input');
+        replaceBox.type = 'checkbox';
+        replaceBox.className = 'professions-checkbox';
+        const replaceText = document.createElement('span');
+        replaceText.textContent = 'Replace gear and class levels with the build I have open right now';
+        replaceLabel.appendChild(replaceBox);
+        replaceLabel.appendChild(replaceText);
+        editor.form.appendChild(replaceLabel);
+
+        replaceBox.addEventListener('change', () => {
+            if (replaceBox.checked) {
+                const current = gatherBuildData();
+                if (isBuildEmpty(current)) {
+                    replaceBox.checked = false;
+                    showNotification('Your current build is empty — nothing to copy over', true);
+                    return;
+                }
+                swappedBuildData = current;
+            }
+            replaceBuild = replaceBox.checked;
+            editor.renderPreview();
+        });
+
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'community-publish-btn';
+        saveBtn.textContent = 'Save Changes';
+        editor.form.appendChild(saveBtn);
+
+        const deleteRow = document.createElement('div');
+        deleteRow.className = 'community-danger-row';
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'community-danger-btn';
+        deleteBtn.innerHTML = ICON_TRASH;
+        deleteBtn.appendChild(document.createTextNode('Delete Build'));
+        const deleteNote = document.createElement('div');
+        deleteNote.className = 'community-field-note';
+        deleteNote.textContent = 'Removes the build and its likes for good. This cannot be undone.';
+        deleteRow.appendChild(deleteBtn);
+        deleteRow.appendChild(deleteNote);
+        editor.form.appendChild(deleteRow);
+
+        modal.appendChild(editor.layout);
+        editor.nameInput.focus();
+
+        async function save() {
+            const name = state.name.trim();
+            if (!name) {
+                showNotification('Please enter a build name', true);
+                editor.nameInput.focus();
+                return;
+            }
+
+            saveBtn.disabled = true;
+            try {
+                await manageCommunityBuild('update', row.id, key, {
+                    name,
+                    description: state.description.trim(),
+                    tags: editor.orderedTags(),
+                    // Nur mitschicken, wenn ausdruecklich gewuenscht — sonst
+                    // laesst die Function build_data unangetastet.
+                    build_data: replaceBuild ? swappedBuildData : undefined
+                });
+                showNotification(`Saved "${name}"`);
+                showHubView();
+            } catch (err) {
+                console.error(err);
+                showNotification(err.message || 'Failed to save changes', true);
+                saveBtn.disabled = false;
+            }
+        }
+
+        deleteBtn.addEventListener('click', async () => {
+            if (!confirm(`Delete "${row.name}"? This cannot be undone.`)) return;
+            deleteBtn.disabled = true;
+            saveBtn.disabled = true;
+            try {
+                await manageCommunityBuild('delete', row.id, key);
+                showNotification(`Deleted "${row.name}"`);
+                showHubView();
+            } catch (err) {
+                console.error(err);
+                showNotification(err.message || 'Failed to delete build', true);
+                deleteBtn.disabled = false;
+                saveBtn.disabled = false;
+            }
+        });
+
+        saveBtn.addEventListener('click', save);
     }
 
     function openModal() {
@@ -1184,7 +1514,7 @@ export function initCommunityHub({ gatherBuildData, loadBuildData, showNotificat
     // dann das Hub-Modal.
     document.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape') return;
-        if (closeInfo()) return;
+        if (closeTopOverlay()) return;
         closeModal();
     });
 }

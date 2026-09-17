@@ -2901,3 +2901,151 @@ h1::after {
   color: var(--text-faint);
   font-size: 10.5px;
 }
+
+/* ---------- Build-Key ---------- */
+
+/* Name und Key stehen nebeneinander; der Key bekommt nur so viel Platz,
+   wie er braucht, der Name den Rest. */
+.community-field-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.community-field-row > .community-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.community-field-row > .community-field-key {
+  flex: 0 1 190px;
+}
+
+@media (max-width: 620px) {
+  .community-field-row {
+    flex-direction: column;
+  }
+
+  .community-field-row > .community-field-key {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+}
+
+/* Inline-SVG-Icons (Stift, Papierkorb) — erben die Farbe des Buttons ueber
+   currentColor, anders als ein Farb-Emoji. */
+.community-icon {
+  width: 13px;
+  height: 13px;
+  display: block;
+  flex-shrink: 0;
+}
+
+/* Der Stift setzt sich bewusst vom ℹ ab: Aschgold statt Seelen-Blau, damit
+   auf einen Blick klar ist, dass es kein Info-, sondern ein Besitz-Knopf ist. */
+.community-card-edit-btn {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--evolve-dim);
+  color: var(--evolve);
+  font-family: var(--font-main);
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.community-card-edit-btn:hover {
+  border-color: var(--evolve);
+  color: var(--bone);
+  box-shadow: 0 0 9px rgba(224, 176, 80, 0.3);
+}
+
+/* Key-Eingabe teilt sich die Huelle mit dem Info-Panel, braucht aber
+   deutlich weniger Breite. */
+.community-key-modal {
+  width: min(430px, 94vw);
+}
+
+.community-key-modal h2 {
+  margin: 0 34px 10px 0;
+  font-size: 1.2rem;
+  font-weight: 400;
+  font-variant: small-caps;
+  letter-spacing: 0.14em;
+  color: var(--bone);
+}
+
+.community-key-modal .community-info-description {
+  margin-bottom: 14px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.community-key-modal .community-admin-row {
+  margin-bottom: 10px;
+}
+
+/* ---------- Edit-Ansicht ---------- */
+
+.community-replace-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.community-replace-row .professions-checkbox {
+  margin-top: 2px;
+}
+
+/* Loeschen sitzt abgesetzt unter dem Speichern-Button, damit es nicht
+   versehentlich getroffen wird. */
+.community-danger-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 16px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border-dim);
+}
+
+.community-danger-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px 18px;
+  background: rgba(176, 98, 88, 0.08);
+  border: 1px solid var(--negative);
+  color: var(--negative);
+  font-family: var(--font-main);
+  font-size: 12.5px;
+  font-variant: small-caps;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.community-danger-btn:hover:not(:disabled) {
+  background: rgba(176, 98, 88, 0.2);
+  color: var(--bone);
+  box-shadow: 0 0 14px rgba(176, 98, 88, 0.3);
+}
+
+.community-danger-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.community-danger-icon {
+  font-size: 13px;
+  line-height: 1;
+}
