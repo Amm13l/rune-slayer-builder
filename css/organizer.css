@@ -8,8 +8,26 @@
    ============================================================ */
 
 :root {
-  --font-main: 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
-  --font-num: 'Palatino Linotype', Georgia, serif;
+  /* Dieselbe Schrift heisst je nach System anders: Windows liefert sie als
+     "Palatino Linotype", macOS und iOS schlicht als "Palatino", Linux als
+     "URW Palladio L". Ohne diese Namen landete der Mac auf Georgia — andere
+     Laufweite, groessere x-Hoehe, Minuskelziffern — und die Seite sah dort
+     anders aus als unter Windows. Georgia bleibt nur letzte Notloesung. */
+  --font-main: 'Palatino Linotype', 'Book Antiqua', Palatino, 'URW Palladio L', Georgia, serif;
+  --font-num: 'Palatino Linotype', 'Book Antiqua', Palatino, 'URW Palladio L', Georgia, serif;
+
+  /* Masse der Ausruestungsflaeche als Variablen, damit sie mit der
+     Fensterbreite mitwachsen statt aus dem Fenster zu laufen. Ab etwa
+     500px Breite stehen ueberall wieder die alten Desktop-Werte. */
+  --slot-size: clamp(58px, 19vw, 96px);
+  --rune-size: 56px;
+  --gear-gap: clamp(6px, 2vw, 12px);
+  --grid-gap: clamp(8px, 2.6vw, 18px);
+  --panel-pad: clamp(10px, 3vw, 20px);
+  /* Das Panel haengt mittig unter dem aeussersten Waffenslot. Damit es von
+     dort aus nach beiden Seiten ins Bild passt, darf es hoechstens so breit
+     werden wie das Fenster minus der beiden Slots links und rechts davon. */
+  --slot-panel-width: min(224px, calc(100vw - 2 * var(--slot-size) - 2 * var(--gear-gap) - 8px));
 
   --bg: #0a0a0c;
   --panel: rgba(16, 16, 19, 0.92);
@@ -37,6 +55,11 @@
 
 html {
   font-size: 16px;
+  /* iOS und Android vergroessern Text in schmalen Spalten sonst von sich
+     aus. Genau das liess einzelne Zeilen auf dem Handy aus ihren Kaesten
+     laufen, waehrend es unter Windows passte. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
@@ -93,17 +116,29 @@ h1::after {
   display: flex;
   justify-content: center;
   align-items: flex-start;
+  flex-wrap: wrap;
   gap: 22px;
-  max-width: 97vw;
+  /* 97vw rechnete unter Windows die Scrollbar mit und war dort ein paar
+     Pixel breiter als auf dem Mac, wo es keine gibt. 100% haelt sich an
+     die echte Inhaltsbreite und ist damit ueberall gleich. */
+  max-width: 100%;
   margin: 0 auto;
   padding: 20px 10px 70px;
+}
+
+/* Beide Haelften duerfen hoechstens so breit werden wie das Fenster —
+   sonst schiebt eine von ihnen die ganze Seite aus der Mitte. */
+.main-container > * {
+  max-width: 100%;
+  min-width: 0;
 }
 
 .LayoutEquipments {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 20px;
+  padding: var(--panel-pad);
+  max-width: 100%;
   background: var(--panel);
   border: 1px solid var(--border);
   outline: 1px solid var(--border-dim);
@@ -114,7 +149,8 @@ h1::after {
 /* Rüstung | Charakter | Ringe */
 .equipment-grid {
   display: flex;
-  gap: 18px;
+  gap: var(--grid-gap);
+  max-width: 100%;
   /* stretch, damit das Charakterbild auf die Höhe der längsten Spalte wächst */
   align-items: stretch;
 }
@@ -122,7 +158,7 @@ h1::after {
 .gear-col {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--gear-gap);
   flex-shrink: 0;
 }
 
@@ -130,15 +166,17 @@ h1::after {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: var(--gear-gap);
   flex: 1;
-  min-width: 240px;
+  /* Feste 240px zwangen die Ausruestung auf schmalen Screens ueber den
+     Rand. flex: 1 gibt der Mitte ohnehin den ganzen Rest. */
+  min-width: clamp(120px, 26vw, 240px);
 }
 
 /* Rahmen für die Charaktersilhouette (wird von js/character.js befüllt) */
 .character-portrait {
   width: 100%;
-  min-height: 240px;
+  min-height: clamp(150px, 40vw, 240px);
   flex: 1;
   display: flex;
   padding: 10px;
@@ -158,14 +196,14 @@ h1::after {
 
 .gear-center-slots {
   display: flex;
-  gap: 12px;
+  gap: var(--gear-gap);
 }
 
 /* Waffen und Offhand unten, wie im Spiel */
 .gear-row-bottom {
   display: flex;
   justify-content: center;
-  gap: 12px;
+  gap: var(--gear-gap);
 }
 
 /* Trägt Item-Slot und ausklappbare Rune-Slots */
@@ -177,18 +215,20 @@ h1::after {
 /* ---------- Slots ---------- */
 
 .slot {
-  width: 96px;
-  height: 96px;
+  width: var(--slot-size);
+  height: var(--slot-size);
   display: flex;
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 6px;
+  padding: clamp(4px, 1vw, 6px);
   border: 1px solid var(--border);
   background: rgba(0, 0, 0, 0.45);
   box-shadow: inset 0 0 14px rgba(0, 0, 0, 0.8);
   color: var(--text-faint);
-  font-size: 12px;
+  /* Schriftgroesse haengt am Slot, nicht an einer festen Zahl — sonst
+     stand auf kleinen Slots derselbe Text wie auf grossen und lief raus. */
+  font-size: clamp(9px, calc(var(--slot-size) * 0.125), 12px);
   font-variant: small-caps;
   letter-spacing: 0.12em;
   cursor: pointer;
@@ -293,7 +333,7 @@ h1::after {
 }
 
 .slot-content {
-  font-size: 11px;
+  font-size: clamp(8.5px, calc(var(--slot-size) * 0.118), 11px);
   line-height: 1.25;
   /* Nur umbrechen wenn ein Wort allein nicht passt — das alte
      `word-break: break-word` zerlegte auch Wörter, die gepasst hätten. */
@@ -375,7 +415,7 @@ h1::after {
   top: 100%;
   left: 0;
   z-index: 1500;
-  width: 224px;
+  width: var(--slot-panel-width);
   padding: 12px;
   border: 1px solid var(--border-bright);
   background: rgba(10, 10, 13, 0.98);
@@ -395,6 +435,16 @@ h1::after {
 .slot-panel-left {
   left: auto;
   right: 0;
+}
+
+/* Mittelspalte und Waffenreihe haengen das Panel mittig unter den Slot.
+   An der linken Kante aufgehaengt rutschte es auf schmalen Screens sonst
+   ueber den Fensterrand — dort war der Text dann abgeschnitten. */
+.gear-center .slot-panel,
+.gear-row-bottom .slot-panel {
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
 }
 
 .slot-wrap:hover > .slot-panel {
@@ -424,7 +474,7 @@ h1::after {
    mittig unter die beiden darüber. */
 .slot-panel .rune-slots {
   display: grid;
-  grid-template-columns: repeat(2, 56px);
+  grid-template-columns: repeat(2, var(--rune-size));
   gap: 8px;
   justify-content: center;
   margin-top: 10px;
@@ -438,8 +488,8 @@ h1::after {
 }
 
 .rune-slot {
-  width: 56px;
-  height: 56px;
+  width: var(--rune-size);
+  height: var(--rune-size);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -524,6 +574,7 @@ h1::after {
 .class-container,
 .abilities-container {
   width: 300px;
+  max-width: 100%;
   background: var(--panel);
   border: 1px solid var(--border);
   outline: 1px solid var(--border-dim);
@@ -537,8 +588,13 @@ h1::after {
 .abilities-stats-column {
   display: flex;
   flex-direction: row;
+  /* Passen die beiden Panels nicht nebeneinander, rutscht das zweite
+     darunter — vorher schob es die Seite aus der Mitte. */
+  flex-wrap: wrap;
+  justify-content: center;
   align-items: flex-start;
   gap: 22px;
+  max-width: 100%;
 }
 
 /* Etwas breiter als die anderen Panels: so passen auch mit Scrollbalken
@@ -546,6 +602,7 @@ h1::after {
 .abilities-stats-column .abilities-container,
 .abilities-stats-column .total-stats-container {
   width: 340px;
+  max-width: 100%;
 }
 
 .total-stats-container h2,
@@ -666,8 +723,11 @@ h1::after {
 
 .class-area {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   align-items: flex-start;
   gap: 22px;
+  max-width: 100%;
 }
 
 .class-container {
@@ -1354,7 +1414,9 @@ h1::after {
   top: 50%;
   left: 20px;
   transform: translateY(-50%);
-  width: min(600px, 40vw);
+  /* 40vw allein wurde auf kleineren Fenstern absurd schmal; die letzte
+     Schranke haelt das Menue auf jeden Fall im Bild. */
+  width: min(600px, max(40vw, 340px), calc(100vw - 40px));
   max-height: 82vh;
   background: rgba(12, 12, 15, 0.97);
   border: 1px solid var(--border-bright);
@@ -1587,7 +1649,7 @@ h1::after {
 
 .tooltip {
   position: absolute;
-  max-width: 300px;
+  max-width: min(300px, calc(100vw - 24px));
   background: rgba(10, 10, 13, 0.97);
   border: 1px solid var(--border-bright);
   box-shadow: 0 0 30px rgba(0, 0, 0, 0.85);
@@ -1749,9 +1811,10 @@ h1::after {
   top: 38%;
   left: 50%;
   transform: translateX(-50%);
-  min-width: 320px;
+  min-width: min(320px, calc(100vw - 32px));
+  max-width: calc(100vw - 24px);
   text-align: center;
-  padding: 14px 34px;
+  padding: 14px clamp(16px, 6vw, 34px);
   background: rgba(8, 8, 10, 0.92);
   border-top: 1px solid var(--border-bright);
   border-bottom: 1px solid var(--border-bright);
@@ -2006,7 +2069,12 @@ h1::after {
 
 /* ---------- Responsive ---------- */
 
-@media (max-width: 1400px) {
+/* Nebeneinander brauchen Ausruestung + Class Levels + Abilities + Stats gut
+   1640px. Darunter stapeln sich Class Levels und die beiden rechten Panels,
+   damit alles nebeneinander neben der Ausruestung bleibt. Bei 1400px lief
+   die Seite auf den ueblichen Mac-Fensterbreiten (1440/1512/1600) seitlich
+   aus dem Bild. */
+@media (max-width: 1640px) {
   .class-area {
     flex-direction: column;
   }
@@ -2025,19 +2093,10 @@ h1::after {
   }
 }
 
+/* Slot- und Runengroessen kommen aus den clamp()-Variablen oben und
+   schrumpfen von selbst mit — hier stehen nur noch die Dinge, die sich
+   nicht ueber eine Groesse regeln lassen. */
 @media (max-width: 768px) {
-  .slot {
-    width: 78px;
-    height: 78px;
-    font-size: 10.5px;
-  }
-
-  .rune-slot {
-    width: 46px;
-    height: 46px;
-    font-size: 10px;
-  }
-
   .item-menu {
     width: 92vw;
     left: 4vw;
@@ -2048,8 +2107,25 @@ h1::after {
   }
 
   h1 {
+    margin-top: 20px;
     font-size: 1.2rem;
     letter-spacing: 0.2em;
+  }
+
+  /* Eigener Scrollbereich mitten in einer Seite, die selbst schon scrollt,
+     ist am Touchscreen kaum zu bedienen. */
+  .class-container {
+    max-height: none;
+    overflow-y: visible;
+  }
+
+  .community-hub-overlay {
+    padding: 10px;
+  }
+
+  .community-hub-modal,
+  .class-info-modal {
+    padding: 20px 16px;
   }
 }
 
@@ -2166,6 +2242,7 @@ h1::after {
 
 .community-upload {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 6px;
 }
@@ -2244,6 +2321,8 @@ h1::after {
 .community-list-header {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
   justify-content: space-between;
   font-size: 12px;
   font-variant: small-caps;
@@ -2302,18 +2381,23 @@ h1::after {
 
 .community-admin-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 14px;
 }
 
 .community-filter-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 14px;
 }
 
 .community-filter-select {
-  flex: 1;
+  flex: 1 1 130px;
+  /* Ohne min-width: 0 schrumpft ein select nie unter seine laengste
+     Option — zu dritt nebeneinander sprengte das den Hub auf dem Handy. */
+  min-width: 0;
   padding: 7px 10px;
   background: rgba(0, 0, 0, 0.4);
   border: 1px solid var(--border);
@@ -2340,19 +2424,23 @@ h1::after {
    in einer Zeile ("10 Warrior + 10 Archer + ... + 10 Samurai"). */
 .community-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  /* minmax(0, …) statt nur 1fr: der Build-Name in der Kachel laeuft auf
+     einer Zeile, seine Mindestbreite zog die Spalte sonst auf und die
+     Kacheln standen im Hub ueber dem rechten Rand. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
 }
 
 @media (max-width: 720px) {
   .community-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
 .community-card {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   gap: 6px;
   background: rgba(0, 0, 0, 0.3);
   border: 1px solid var(--border-dim);
