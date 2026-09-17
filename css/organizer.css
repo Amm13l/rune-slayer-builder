@@ -437,12 +437,6 @@ h1::after {
   justify-self: center;
 }
 
-/* Zeigt am Item, dass dort Runen stecken, ohne das Panel zu öffnen */
-.slot-wrap:has(.rune-slot.filled) > .slot.filled::after {
-  outline: 1px solid var(--soul);
-  outline-offset: -4px;
-}
-
 .rune-slot {
   width: 56px;
   height: 56px;
