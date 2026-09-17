@@ -115,7 +115,7 @@ function piece(rect, item) {
             ${rect.r ? `rx="${rect.r}" ry="${rect.r}"` : ''}
             fill="${c}" fill-opacity="${on ? 0.26 : 0.05}"
             stroke="${c}" stroke-opacity="${on ? 0.95 : 0.5}" stroke-width="2"
-            ${on ? `filter="url(#rsGlow)"` : ''}/>`;
+            ${on ? `filter="url(#rsGlowBody)"` : ''}/>`;
 }
 
 /* Waffe und Schild liegen vor dem Körper. Damit sie sich auch dann absetzen,
@@ -158,7 +158,7 @@ function capeMarkup(back) {
   const c = colorOf(back);
   return `<path d="M 56 76 L 136 76 L 152 206 L 40 206 Z"
             fill="${c}" fill-opacity="0.16" stroke="${c}" stroke-opacity="0.7"
-            stroke-width="2" filter="url(#rsGlow)"/>`;
+            stroke-width="2" filter="url(#rsGlowBody)"/>`;
 }
 
 /* -------------------------- Rassenmerkmale --------------------------
@@ -348,11 +348,26 @@ export function buildCharacterSVG(gear) {
 
   // Der Ausschnitt reicht bis y=-34, damit Ohren, Hörner und Heiligenscheine
   // über dem Kopf Platz haben.
+  //
+  // Zwei Glow-Filter mit identischem Schein, nur unterschiedlich grosser
+  // Filterflaeche: Der Weichzeichner rechnet die ganze Flaeche durch, und beim
+  // Rendern der Discord-Bilder (resvg) war das ~96 % der Zeit. Der Schein
+  // reicht praktisch nur 3σ = 10,5 Einheiten weit.
+  //   rsGlow      60 % Rand — fuer kleine und unterschiedlich grosse Formen
+  //               (Waffen, Hoerner, Ohren), bei denen weniger den Schein
+  //               abschneiden wuerde.
+  //   rsGlowBody  35 % / 23 % — nur fuer Koerperteile und Umhang, deren Masse
+  //               fest sind (BODY, capeMarkup): ergibt ueberall mind. 12
+  //               Einheiten Rand. Pixelvergleich aller Community-Builds mit
+  //               resvg: 0 abweichende Pixel, Rendern 34 % schneller.
   return `
 <svg class="character-svg" viewBox="0 -34 210 284" preserveAspectRatio="xMidYMid meet"
      xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
   <defs>
     <filter id="rsGlow" x="-60%" y="-60%" width="220%" height="220%">
+      <feDropShadow dx="0" dy="0" stdDeviation="3.5" flood-opacity="0.85"/>
+    </filter>
+    <filter id="rsGlowBody" x="-35%" y="-23%" width="170%" height="146%">
       <feDropShadow dx="0" dy="0" stdDeviation="3.5" flood-opacity="0.85"/>
     </filter>
   </defs>
