@@ -4,11 +4,16 @@
 // vom Upload-Flow (upload-community-build) komplett isoliert — es handelt sich
 // um einen separaten, asynchronen Trigger, kein Teil des Upload-Requests.
 import { Resvg, initWasm } from 'npm:@resvg/resvg-wasm@2.6.2';
-import { buildCharacterSVG } from '../../../js/character.js';
-import { buildGear, classBreakdown, isBuildEmpty } from '../../../js/buildGear.js';
+// Silhouette und Build-Aufloesung aus demselben Code wie der Hub, statt aus
+// Kopien — der Post zeigt damit dieselbe Figur. Ueber jsDelivr und auf einen
+// Commit gepinnt: Supabase' Bundler laedt nicht von github.io, und der Pin
+// macht jeden Deploy reproduzierbar. Nach Aenderungen an Items oder
+// Silhouetten den Hash auf den neuen Commit setzen und neu deployen.
+import { buildCharacterSVG } from 'https://cdn.jsdelivr.net/gh/Amm13l/rune-slayer-builder@3c3223735e9505c796895ea4d63be09776f052e7/js/character.js';
+import { buildGear, classBreakdown, isBuildEmpty } from 'https://cdn.jsdelivr.net/gh/Amm13l/rune-slayer-builder@3c3223735e9505c796895ea4d63be09776f052e7/js/buildGear.js';
+import { buildMessageComponents, EMBED_COLOR } from '../_shared/discordBuild.ts';
 
 const RESVG_WASM_URL = 'https://unpkg.com/@resvg/resvg-wasm@2.6.2/index_bg.wasm';
-const SITE_URL = 'https://amm13l.github.io/rune-slayer-builder';
 const DISCORD_CHANNEL_ID = '1543542286967906355'; // #build-uploads
 
 let wasmReady: Promise<void> | null = null;
@@ -45,26 +50,16 @@ function truncate(text: string, max: number): string {
     return text.length > max ? text.slice(0, max - 1) + '…' : text;
 }
 
-// Zweiter Button togglet einen Like ueber die discord-interactions Function —
-// braucht dafuer einen echten Bot (Nachricht ueber die Bot-API gesendet),
+// Die Buttons (👍 👎 ℹ️) verarbeitet die discord-interactions Function —
+// dafuer braucht es einen echten Bot (Nachricht ueber die Bot-API gesendet),
 // da ein reiner Incoming-Webhook keine application_id hat und Discord Klicks
 // auf seinen Buttons nirgendwo hin routen koennte.
-function buildMessageComponents(buildId: string, likesCount: number) {
-    return [{
-        type: 1, // Action Row
-        components: [
-            { type: 2, style: 5, label: 'View Build', url: `${SITE_URL}/?build=${buildId}` },
-            { type: 2, style: 2, label: String(likesCount ?? 0), custom_id: `like:${buildId}`, emoji: { name: '❤️' } }
-        ]
-    }];
-}
-
 function buildDiscordForm(record: any, png: Uint8Array): FormData {
     const gear = gearForBuild(record.build_data);
     const embed = {
         title: truncate(record.name || 'Unnamed Build', 256),
         description: truncate(classBreakdown(record.build_data) || 'No class levels set', 4096),
-        color: 0x8b5cf6,
+        color: EMBED_COLOR,
         image: { url: 'attachment://build.png' },
         footer: { text: gear.race ? gear.race.name + (record.build_data?.raceEvolution ? ` (${record.build_data.raceEvolution})` : '') : 'No race selected' },
         timestamp: record.created_at
@@ -73,7 +68,7 @@ function buildDiscordForm(record: any, png: Uint8Array): FormData {
     const form = new FormData();
     form.append('payload_json', JSON.stringify({
         embeds: [embed],
-        components: buildMessageComponents(record.id, record.likes_count ?? 0),
+        components: buildMessageComponents(record.id, record.likes_count ?? 0, record.dislikes_count ?? 0),
         attachments: [{ id: '0', filename: 'build.png' }]
     }));
     form.append('files[0]', new Blob([png], { type: 'image/png' }), 'build.png');

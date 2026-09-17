@@ -64,7 +64,8 @@ Deno.serve(async (req) => {
   if (typeof buildId !== "string" || !UUID_RE.test(buildId)) {
     return json({ error: "Invalid build_id" }, 400);
   }
-  if (!(vote in VOTE_VALUES)) {
+  // hasOwn statt `in`: "toString" & Co. stehen sonst ueber den Prototyp drin.
+  if (typeof vote !== "string" || !Object.hasOwn(VOTE_VALUES, vote)) {
     return json({ error: "vote must be 'like' or 'dislike'" }, 400);
   }
   const direction = VOTE_VALUES[vote];
