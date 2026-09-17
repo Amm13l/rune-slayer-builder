@@ -1,18 +1,20 @@
 // Community Hub: Builds ohne Account auf Supabase hochladen und durchstoebern.
 import { renderCharacter, RARITY_COLORS } from './character.js';
-import {
-    buildGear, classBreakdown, classEntries, dominantClass, isBuildEmpty, resolveItem
-} from './buildGear.js';
-import abilitiesDatabase from '../data/abilities.js';
+import { buildGear, classBreakdown, dominantClass, isBuildEmpty } from './buildGear.js';
+import { buildInfoModel, raceLabel, MAX_TOTAL_LEVEL } from './buildInfo.js';
 
 const SUPABASE_URL = 'https://nzvkfczphpvkvfsquzmy.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56dmtmY3pwaHB2a3Zmc3F1em15Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODczMzgxODYsImV4cCI6MjEwMjkxNDE4Nn0.FkS0H0BCUElZprYQwJwGRzG8IUXjOQPClpA0c_SF6fY';
 const TABLE_URL = `${SUPABASE_URL}/rest/v1/community_builds`;
 const UPLOAD_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/upload-community-build`;
 const MANAGE_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/manage-community-build`;
-const LIKE_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/toggle-community-build-like`;
+// Heisst aus historischen Gruenden noch "like", nimmt aber beide Richtungen.
+const VOTE_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/toggle-community-build-like`;
 const ADMIN_CODE_STORAGE_KEY = 'rsCommunityAdminCode';
-const LIKED_BUILDS_STORAGE_KEY = 'rsCommunityLikedBuilds';
+const VOTES_STORAGE_KEY = 'rsCommunityBuildVotes';
+// Vor den Dislikes: nur ein Array gelikter IDs. Wird beim ersten Laden in
+// VOTES_STORAGE_KEY uebernommen, damit gesetzte Daumen nicht verschwinden.
+const LEGACY_LIKED_STORAGE_KEY = 'rsCommunityLikedBuilds';
 
 // Site-Key ist bewusst oeffentlich (Cloudflare Turnstile ist so designt) —
 // die eigentliche Pruefung passiert serverseitig in der Edge Function.
@@ -36,30 +38,11 @@ const AVAILABLE_TAGS = [
     'PvP', 'PvE', 'Crit', 'Minmaxxed', 'Tank', 'Meta', 'Off-Meta'
 ];
 
-// Reihenfolge im Info-Panel, angelehnt an das Ausruestungs-Panel:
-// Ruestung, Waffen, dann Schmuck.
-const INFO_SLOTS = [
-    ['helmet', 'Helmet'],
-    ['chest', 'Chest'],
-    ['back', 'Back'],
-    ['boots', 'Boots'],
-    ['weapon1', 'Weapon 1'],
-    ['offhand', 'Offhand'],
-    ['weapon2', 'Weapon 2'],
-    ['ring1', 'Ring 1'],
-    ['ring2', 'Ring 2'],
-    ['ring3', 'Ring 3'],
-    ['ring4', 'Ring 4'],
-    ['lantern', 'Lantern'],
-    ['fairy', 'Fairy']
-];
-
-const RUNE_SLOT_NUMBERS = ['I', 'II', 'III', 'IV', 'V', 'VI'];
-
-/* Stift und Papierkorb als Inline-SVG statt als Emoji: die Serifenschrift
-   der Seite hat fuer ✏ und 🗑 kein Glyph und ersetzt sie durch unleserliche
-   Balken. `currentColor` laesst zudem die CSS-Farbe durchgreifen, ein
-   Farb-Emoji wuerde das ignorieren. Feste Strings, kein Nutzerinput. */
+/* Icons als Inline-SVG statt als Emoji: die Serifenschrift der Seite hat
+   fuer ✏ und 🗑 kein Glyph und ersetzt sie durch unleserliche Balken, und
+   Farb-Emoji ignorieren die CSS-Farbe — der aktive Daumen soll aber gruen
+   bzw. rot leuchten. `currentColor` macht beides. Feste Strings, kein
+   Nutzerinput. */
 const ICON_PENCIL = `
 <svg class="community-icon" viewBox="0 0 16 16" aria-hidden="true">
   <path d="M10.9 1.7 14.3 5.1 5.4 14 1.5 14.5 2.1 10.6 Z" fill="none"
@@ -76,11 +59,21 @@ const ICON_TRASH = `
         stroke-width="1.2" stroke-linecap="round"/>
 </svg>`;
 
-// Abilities stehen im Build nur als Name — die Rarity (und damit die Farbe)
-// muss hier nachgeschlagen werden.
-const ABILITY_BY_NAME = new Map(
-    Object.values(abilitiesDatabase).map(ability => [ability.name, ability])
-);
+// Daumen runter ist derselbe Pfad, um 180° gedreht — wie bei den gaengigen
+// Icon-Sets sitzt die Manschette dann oben rechts.
+const THUMB_PATHS = `
+  <path d="M1.8 7.2h2.6v6.9H1.8z" fill="none" stroke="currentColor"
+        stroke-width="1.3" stroke-linejoin="round"/>
+  <path d="M4.4 7.4 7.1 2.1c1 0 1.8.9 1.6 1.9L8.3 6.4h4.4c1 0 1.7.9 1.5 1.9l-1 4.4c-.2.9-1 1.4-1.8 1.4H4.4"
+        fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>`;
+
+const ICON_THUMB_UP = `
+<svg class="community-icon" viewBox="0 0 16 16" aria-hidden="true">${THUMB_PATHS}</svg>`;
+
+const ICON_THUMB_DOWN = `
+<svg class="community-icon" viewBox="0 0 16 16" aria-hidden="true">
+  <g transform="rotate(180 8 8)">${THUMB_PATHS}</g>
+</svg>`;
 
 function supabaseHeaders(extra = {}) {
     return {
@@ -94,7 +87,7 @@ async function fetchCommunityBuilds(sortBy = 'likes') {
     const order = sortBy === 'likes' ? 'likes_count.desc,created_at.desc' : 'created_at.desc';
     // has_key ist nur ein Flag — die Hashes selbst liegen in
     // community_build_keys, wo anon keinerlei Zugriff hat.
-    const columns = 'id,name,description,tags,has_key,created_at,build_data,likes_count';
+    const columns = 'id,name,description,tags,has_key,created_at,build_data,likes_count,dislikes_count';
     const res = await fetch(`${TABLE_URL}?select=${columns}&order=${order}&limit=100`, {
         headers: supabaseHeaders()
     });
@@ -114,32 +107,51 @@ export async function fetchBuildById(id) {
 }
 
 // Laeuft ueber die Edge Function statt eines direkten REST-Inserts: die
-// hasht die IP serverseitig, rate-limitet neue Likes pro IP und haelt so
-// den likes_count-Trigger vor direkten anon-Schreibzugriffen sicher.
-async function toggleCommunityBuildLike(buildId) {
-    const res = await fetch(LIKE_FUNCTION_URL, {
+// hasht die IP serverseitig, rate-limitet neue Stimmen pro IP und haelt so
+// die Zaehler-Trigger vor direkten anon-Schreibzugriffen sicher.
+// Gleiche Richtung nochmal = zuruecknehmen, andere Richtung = umschwenken;
+// die Antwort enthaelt den neuen Stand (`vote` ist 'like', 'dislike' oder null).
+async function voteCommunityBuild(buildId, vote) {
+    const res = await fetch(VOTE_FUNCTION_URL, {
         method: 'POST',
         headers: supabaseHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ build_id: buildId })
+        body: JSON.stringify({ build_id: buildId, vote })
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `Like failed (${res.status})`);
+    if (!res.ok) throw new Error(data.error || `Vote failed (${res.status})`);
     return data;
 }
 
-// Serverseitig ist ein Like an den IP-Hash gebunden (mehrfaches Liken vom
-// selben Anschluss aendert nichts); lokal merken wir uns die IDs nur, um
-// den Herz-Button nach einem Reload wieder korrekt "aktiv" darzustellen.
-function getLikedBuildIds() {
+// Serverseitig haengt eine Stimme am IP-Hash (mehrfaches Abstimmen vom
+// selben Anschluss aendert nichts); lokal merken wir uns nur, welcher Daumen
+// nach einem Reload wieder aktiv dargestellt werden soll.
+function getMyVotes() {
+    let votes = {};
     try {
-        return new Set(JSON.parse(localStorage.getItem(LIKED_BUILDS_STORAGE_KEY) || '[]'));
+        votes = JSON.parse(localStorage.getItem(VOTES_STORAGE_KEY) || '{}') || {};
     } catch {
-        return new Set();
+        votes = {};
     }
+    // Einmalige Uebernahme der alten Herz-Likes, danach ist der Schluessel weg.
+    try {
+        const legacy = localStorage.getItem(LEGACY_LIKED_STORAGE_KEY);
+        if (legacy) {
+            JSON.parse(legacy).forEach(id => { if (!votes[id]) votes[id] = 'like'; });
+            localStorage.setItem(VOTES_STORAGE_KEY, JSON.stringify(votes));
+            localStorage.removeItem(LEGACY_LIKED_STORAGE_KEY);
+        }
+    } catch {
+        // Kaputter Altbestand — dann eben ohne Uebernahme.
+    }
+    return votes;
 }
 
-function setLikedBuildIds(ids) {
-    localStorage.setItem(LIKED_BUILDS_STORAGE_KEY, JSON.stringify([...ids]));
+function saveMyVotes(votes) {
+    try {
+        localStorage.setItem(VOTES_STORAGE_KEY, JSON.stringify(votes));
+    } catch {
+        // Privater Modus o.ae.: die Stimme zaehlt serverseitig trotzdem.
+    }
 }
 
 // Laeuft ueber die Edge Function statt eines direkten REST-Inserts: die
@@ -230,11 +242,6 @@ function rarityColor(entity) {
     return RARITY_COLORS[entity?.rarity] || RARITY_COLORS.common;
 }
 
-function raceLabel(gear, buildData) {
-    if (!gear.race) return '';
-    return gear.race.name + (buildData.raceEvolution ? ` (${buildData.raceEvolution})` : '');
-}
-
 function chip(label, className) {
     const el = document.createElement('span');
     el.className = className;
@@ -252,10 +259,10 @@ function tagRow(tags) {
 
 /* ------------------------------ Build-Kachel ------------------------------
    Dieselbe Kachel rendert das Hub-Grid und die Live-Vorschau im Publish-
-   Menue. `preview: true` laesst Load/Delete weg und macht den Like-Button
+   Menue. `preview: true` laesst Load/Delete weg und macht die Daumen
    inert. Die Beschreibung steht bewusst NICHT auf der Kachel, sondern
    ausschliesslich hinter dem Info-Button. */
-function buildCard(build, { isAdmin = false, isLiked = false, preview = false } = {}) {
+function buildCard(build, { isAdmin = false, myVote = null, preview = false } = {}) {
     const { buildData } = build;
     const gear = buildGear(buildData);
 
@@ -326,19 +333,13 @@ function buildCard(build, { isAdmin = false, isLiked = false, preview = false } 
         meta.appendChild(editBtn);
     }
 
-    const likeBtn = document.createElement('button');
-    likeBtn.className = 'community-card-like-btn' + (isLiked ? ' liked' : '');
-    likeBtn.title = preview ? 'Likes' : (isLiked ? 'Unlike' : 'Like');
-    likeBtn.disabled = preview;
-    const likeIcon = document.createElement('span');
-    likeIcon.className = 'community-card-like-icon';
-    likeIcon.textContent = '♥';
-    const likeCount = document.createElement('span');
-    likeCount.className = 'community-card-like-count';
-    likeCount.textContent = build.likesCount ?? 0;
-    likeBtn.appendChild(likeIcon);
-    likeBtn.appendChild(likeCount);
-    meta.appendChild(likeBtn);
+    const votes = voteButtons({
+        likes: build.likesCount ?? 0,
+        dislikes: build.dislikesCount ?? 0,
+        myVote,
+        inert: preview
+    });
+    meta.appendChild(votes.el);
 
     footer.appendChild(meta);
 
@@ -365,7 +366,50 @@ function buildCard(build, { isAdmin = false, isLiked = false, preview = false } 
 
     card.appendChild(footer);
 
-    return { card, loadBtn, deleteBtn, likeBtn, likeCount, infoBtn, editBtn };
+    return { card, loadBtn, deleteBtn, votes, infoBtn, editBtn };
+}
+
+/* Daumen hoch/runter als zusammengehoeriges Paar. `update()` setzt Zaehler
+   und aktiven Zustand auf einmal, damit ein Umschwenken (hoch -> runter)
+   nie einen Zwischenstand mit zwei aktiven Daumen zeigt. */
+function voteButtons({ likes, dislikes, myVote, inert }) {
+    const el = document.createElement('div');
+    el.className = 'community-card-votes';
+
+    function make(direction, icon) {
+        const btn = document.createElement('button');
+        btn.className = `community-card-vote-btn community-card-vote-${direction}`;
+        btn.innerHTML = icon;
+        btn.disabled = inert;
+        const count = document.createElement('span');
+        count.className = 'community-card-vote-count';
+        btn.appendChild(count);
+        el.appendChild(btn);
+        return { btn, count };
+    }
+
+    const up = make('up', ICON_THUMB_UP);
+    const down = make('down', ICON_THUMB_DOWN);
+
+    function update(vote, likeCount, dislikeCount) {
+        up.count.textContent = likeCount;
+        down.count.textContent = dislikeCount;
+        up.btn.classList.toggle('active', vote === 'like');
+        down.btn.classList.toggle('active', vote === 'dislike');
+        up.btn.title = inert ? 'Likes' : (vote === 'like' ? 'Remove like' : 'Like');
+        down.btn.title = inert ? 'Dislikes' : (vote === 'dislike' ? 'Remove dislike' : 'Dislike');
+        up.btn.setAttribute('aria-pressed', String(vote === 'like'));
+        down.btn.setAttribute('aria-pressed', String(vote === 'dislike'));
+    }
+
+    function setBusy(busy) {
+        if (inert) return;
+        up.btn.disabled = busy;
+        down.btn.disabled = busy;
+    }
+
+    update(myVote, likes, dislikes);
+    return { el, likeBtn: up.btn, dislikeBtn: down.btn, update, setBusy };
 }
 
 /* ------------------------------- Info-Panel -------------------------------
@@ -404,23 +448,23 @@ function emptyNote(text) {
     return note;
 }
 
-function equipmentSection(buildData) {
+function equipmentSection(model) {
     const section = infoSection('Equipment');
+    if (!model.equipment.length) {
+        section.appendChild(emptyNote('Nothing equipped.'));
+        return section;
+    }
+
     const list = document.createElement('div');
     list.className = 'community-info-gear';
-    let any = false;
 
-    INFO_SLOTS.forEach(([slotKey, label]) => {
-        const entry = buildData.items?.[slotKey];
-        if (!entry?.name) return;
-        any = true;
-
+    model.equipment.forEach(item => {
         const row = document.createElement('div');
         row.className = 'community-info-gear-row';
 
         const slotLabel = document.createElement('span');
         slotLabel.className = 'community-info-label';
-        slotLabel.textContent = label;
+        slotLabel.textContent = item.slot;
         row.appendChild(slotLabel);
 
         const body = document.createElement('div');
@@ -428,17 +472,14 @@ function equipmentSection(buildData) {
 
         const itemName = document.createElement('span');
         itemName.className = 'community-info-item';
-        itemName.style.color = rarityColor(resolveItem(slotKey, entry.name));
-        itemName.textContent = entry.name;
+        itemName.style.color = rarityColor(item);
+        itemName.textContent = item.name;
         body.appendChild(itemName);
 
-        const runes = RUNE_SLOT_NUMBERS
-            .map(n => buildData.runes?.[slotKey]?.[n]?.name)
-            .filter(Boolean);
-        if (runes.length) {
+        if (item.runes.length) {
             const runeList = document.createElement('span');
             runeList.className = 'community-info-runes';
-            runeList.textContent = runes.join(' · ');
+            runeList.textContent = item.runes.join(' · ');
             body.appendChild(runeList);
         }
 
@@ -446,32 +487,29 @@ function equipmentSection(buildData) {
         list.appendChild(row);
     });
 
-    section.appendChild(any ? list : emptyNote('Nothing equipped.'));
+    section.appendChild(list);
     return section;
 }
 
-function classSection(buildData) {
+function classSection(model) {
     const section = infoSection('Class Levels');
-    const entries = classEntries(buildData);
-    if (!entries.length) {
+    if (!model.classes.length) {
         section.appendChild(emptyNote('No class levels set.'));
         return section;
     }
 
     const list = document.createElement('div');
     list.className = 'community-info-classes';
-    const total = entries.reduce((sum, [, lvl]) => sum + lvl, 0);
 
-    entries.forEach(([className, level]) => {
+    model.classes.forEach(({ name, level, subclass }) => {
         const row = document.createElement('div');
         row.className = 'community-info-class-row';
         const nameEl = document.createElement('span');
         nameEl.className = 'community-info-class-name';
-        nameEl.textContent = className;
+        nameEl.textContent = name;
         const levelEl = document.createElement('span');
         levelEl.className = 'community-info-class-level';
         // Subclass gibt es erst ab Klassenlevel 30, siehe gatherBuildData()
-        const subclass = buildData.subclasses?.[className];
         levelEl.textContent = subclass ? `Lv ${level} — ${subclass}` : `Lv ${level}`;
         row.appendChild(nameEl);
         row.appendChild(levelEl);
@@ -479,21 +517,21 @@ function classSection(buildData) {
     });
 
     section.appendChild(list);
-    section.appendChild(infoRow('Total', `${total}/50 levels`));
+    section.appendChild(infoRow('Total', `${model.totalLevels}/${MAX_TOTAL_LEVEL} levels`));
     return section;
 }
 
 // Gibt null zurueck, wenn es nichts zu zeigen gibt — der Aufrufer haengt die
-// Sektion dann gar nicht erst ein.
-function chipSection(title, labels, colorFor) {
-    if (!labels.length) return null;
+// Sektion dann gar nicht erst ein. `entries` sind { label, rarity? }.
+function chipSection(title, entries) {
+    if (!entries.length) return null;
     const section = infoSection(title);
     const wrap = document.createElement('div');
     wrap.className = 'community-tag-row';
-    labels.forEach(label => {
+    entries.forEach(({ label, rarity }) => {
         const el = chip(label, 'community-info-chip');
-        if (colorFor) {
-            const color = colorFor(label);
+        if (rarity) {
+            const color = rarityColor({ rarity });
             el.style.color = color;
             el.style.borderColor = color;
         }
@@ -503,37 +541,39 @@ function chipSection(title, labels, colorFor) {
     return section;
 }
 
-function evolutionLabels(buildData) {
-    // Schluessel der zweiten Evolutionsstufe heissen intern "Name::tier2"
-    return Object.entries(buildData.evolutions || {})
-        .filter(([, choice]) => Boolean(choice))
-        .map(([key, choice]) => {
-            const base = key.replace('::tier2', '');
-            const tier = key.endsWith('::tier2') ? ' II' : '';
-            return `${base}${tier} → ${choice}`;
-        })
-        .sort((a, b) => a.localeCompare(b));
+// "👍 12 · 👎 3" mit denselben SVG-Daumen wie auf der Kachel.
+function voteTally(likes, dislikes) {
+    const tally = document.createElement('span');
+    tally.className = 'community-info-votes';
+    [[ICON_THUMB_UP, likes], [ICON_THUMB_DOWN, dislikes]].forEach(([icon, count]) => {
+        const part = document.createElement('span');
+        part.className = 'community-info-vote';
+        part.innerHTML = icon;
+        part.appendChild(document.createTextNode(String(count)));
+        tally.appendChild(part);
+    });
+    return tally;
 }
 
+/* Rendert das gemeinsame Modell aus buildInfo.js. Discord rendert dasselbe
+   Modell als Embed — neue Infos gehoeren deshalb dort hinein, nicht hierher. */
 function buildInfoContent(build) {
-    const { buildData } = build;
-    const gear = buildGear(buildData);
+    const model = buildInfoModel(build);
     const content = document.createElement('div');
     content.className = 'community-info-content';
 
     const heading = document.createElement('h2');
-    heading.textContent = build.name || 'Unnamed Build';
+    heading.textContent = model.name;
     content.appendChild(heading);
 
-    const tags = tagRow(build.tags);
+    const tags = tagRow(model.tags);
     if (tags) content.appendChild(tags);
 
     const about = infoSection('Description');
-    const description = (build.description || '').trim();
-    if (description) {
+    if (model.description) {
         const text = document.createElement('p');
         text.className = 'community-info-description';
-        text.textContent = description;
+        text.textContent = model.description;
         about.appendChild(text);
     } else {
         about.appendChild(emptyNote('No description provided.'));
@@ -542,38 +582,43 @@ function buildInfoContent(build) {
 
     const overview = infoSection('Character');
     let raceValue = 'None';
-    if (gear.race) {
+    if (model.race) {
         raceValue = document.createElement('span');
-        raceValue.style.color = rarityColor(gear.race);
-        raceValue.textContent = raceLabel(gear, buildData);
+        raceValue.style.color = rarityColor(model.race);
+        raceValue.textContent = model.race.label;
     }
     overview.appendChild(infoRow('Race', raceValue));
-    overview.appendChild(infoRow('First class picked', buildData.startingClass || 'Not set'));
-    overview.appendChild(infoRow('Classes', classBreakdown(buildData) || 'No class levels set'));
+    overview.appendChild(infoRow('First class picked', model.startingClass || 'Not set'));
+    overview.appendChild(infoRow('Classes', model.classBreakdown || 'No class levels set'));
     overview.appendChild(infoRow(
         'Level 60 professions',
-        buildData.professionBonus ? 'Included' : 'Not included'
+        model.professionBonus ? 'Included' : 'Not included'
     ));
     content.appendChild(overview);
 
-    content.appendChild(classSection(buildData));
-    content.appendChild(equipmentSection(buildData));
+    content.appendChild(classSection(model));
+    content.appendChild(equipmentSection(model));
 
     const abilitySection = chipSection(
         'Equipped Abilities',
-        (buildData.abilities || []).filter(Boolean),
-        name => rarityColor(ABILITY_BY_NAME.get(name))
+        model.abilities.map(a => ({ label: a.name, rarity: a.rarity }))
     );
     if (abilitySection) content.appendChild(abilitySection);
 
-    const evolutionSection = chipSection('Ability Evolutions', evolutionLabels(buildData));
+    const evolutionSection = chipSection(
+        'Ability Evolutions',
+        model.evolutions.map(label => ({ label }))
+    );
     if (evolutionSection) content.appendChild(evolutionSection);
 
     const footer = document.createElement('div');
     footer.className = 'community-info-footer';
-    footer.textContent = build.created_at
-        ? `Uploaded ${formatDate(build.created_at)} · ♥ ${build.likesCount ?? 0}`
-        : 'Not uploaded yet — this is a preview';
+    if (model.createdAt) {
+        footer.appendChild(document.createTextNode(`Uploaded ${formatDate(model.createdAt)} · `));
+        footer.appendChild(voteTally(model.likes, model.dislikes));
+    } else {
+        footer.textContent = 'Not uploaded yet — this is a preview';
+    }
     content.appendChild(footer);
 
     return content;
@@ -590,7 +635,7 @@ export function initCommunityHub({ gatherBuildData, loadBuildData, showNotificat
     // Escape immer nur eine Ebene schliesst.
     let overlayTop = null;
     let adminCode = sessionStorage.getItem(ADMIN_CODE_STORAGE_KEY) || null;
-    let likedIds = getLikedBuildIds();
+    const myVotes = getMyVotes();
 
     // Sortierung braucht einen Refetch (order kommt vom Server), Klassen-/
     // Rassen-/Tag-Filter laufen rein clientseitig auf dem zuletzt geladenen Set.
@@ -804,16 +849,18 @@ export function initCommunityHub({ gatherBuildData, loadBuildData, showNotificat
                 hasKey: Boolean(row.has_key),
                 created_at: row.created_at,
                 buildData: row.build_data,
-                likesCount: row.likes_count
+                likesCount: row.likes_count,
+                dislikesCount: row.dislikes_count ?? 0
             };
-            const { card, loadBtn, deleteBtn, likeBtn, likeCount, infoBtn, editBtn } = buildCard(build, {
+            const { card, loadBtn, deleteBtn, votes, infoBtn, editBtn } = buildCard(build, {
                 isAdmin: Boolean(adminCode),
-                isLiked: likedIds.has(row.id)
+                myVote: myVotes[row.id] || null
             });
 
             infoBtn.addEventListener('click', () => {
-                // Likes koennen sich seit dem Render geaendert haben
+                // Stimmen koennen sich seit dem Render geaendert haben
                 build.likesCount = row.likes_count;
+                build.dislikesCount = row.dislikes_count ?? 0;
                 openInfo(build);
             });
 
@@ -827,24 +874,26 @@ export function initCommunityHub({ gatherBuildData, loadBuildData, showNotificat
                 closeModal();
             });
 
-            likeBtn.addEventListener('click', async () => {
-                likeBtn.disabled = true;
+            async function castVote(direction) {
+                votes.setBusy(true);
                 try {
-                    const result = await toggleCommunityBuildLike(row.id);
+                    const result = await voteCommunityBuild(row.id, direction);
                     row.likes_count = result.likes_count;
-                    likeCount.textContent = result.likes_count;
-                    likeBtn.classList.toggle('liked', result.liked);
-                    likeBtn.title = result.liked ? 'Unlike' : 'Like';
-                    if (result.liked) likedIds.add(row.id);
-                    else likedIds.delete(row.id);
-                    setLikedBuildIds(likedIds);
+                    row.dislikes_count = result.dislikes_count;
+                    votes.update(result.vote, result.likes_count, result.dislikes_count);
+                    if (result.vote) myVotes[row.id] = result.vote;
+                    else delete myVotes[row.id];
+                    saveMyVotes(myVotes);
                 } catch (err) {
                     console.error(err);
-                    showNotification(err.message || 'Failed to update like', true);
+                    showNotification(err.message || 'Failed to update vote', true);
                 } finally {
-                    likeBtn.disabled = false;
+                    votes.setBusy(false);
                 }
-            });
+            }
+
+            votes.likeBtn.addEventListener('click', () => castVote('like'));
+            votes.dislikeBtn.addEventListener('click', () => castVote('dislike'));
 
             if (deleteBtn) {
                 deleteBtn.addEventListener('click', async () => {
@@ -1168,7 +1217,8 @@ export function initCommunityHub({ gatherBuildData, loadBuildData, showNotificat
                 tags: orderedTags(),
                 created_at: null,
                 buildData: getBuildData(),
-                likesCount: 0
+                likesCount: 0,
+                dislikesCount: 0
             };
             const { card, infoBtn } = buildCard(build, { preview: true });
             infoBtn.addEventListener('click', () => openInfo(build));
@@ -1436,7 +1486,7 @@ export function initCommunityHub({ gatherBuildData, loadBuildData, showNotificat
         deleteBtn.appendChild(document.createTextNode('Delete Build'));
         const deleteNote = document.createElement('div');
         deleteNote.className = 'community-field-note';
-        deleteNote.textContent = 'Removes the build and its likes for good. This cannot be undone.';
+        deleteNote.textContent = 'Removes the build and its votes for good. This cannot be undone.';
         deleteRow.appendChild(deleteBtn);
         deleteRow.appendChild(deleteNote);
         editor.form.appendChild(deleteRow);

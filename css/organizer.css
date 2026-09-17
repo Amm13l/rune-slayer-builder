@@ -2507,44 +2507,56 @@ h1::after {
   font-size: 10.5px;
 }
 
-.community-card-like-btn {
+/* Daumen hoch/runter. Hoch leuchtet im Gruen der positiven Stats, runter im
+   Rot der negativen — dieselben Farben, die man im Builder schon kennt. */
+.community-card-votes {
+  display: flex;
+  gap: 4px;
+}
+
+.community-card-vote-btn {
   display: flex;
   align-items: center;
   gap: 5px;
   flex-shrink: 0;
-  padding: 4px 10px;
+  padding: 4px 9px;
   background: rgba(0, 0, 0, 0.4);
   border: 1px solid var(--border);
   color: var(--text-dim);
   font-family: var(--font-main);
   font-size: 11.5px;
+  line-height: 1;
   cursor: pointer;
   transition: border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.community-card-like-btn:hover {
+.community-card-vote-up:hover:not(:disabled),
+.community-card-vote-up.active {
+  border-color: var(--positive);
+  color: var(--positive);
+}
+
+.community-card-vote-up.active {
+  box-shadow: 0 0 8px rgba(159, 188, 143, 0.3);
+}
+
+.community-card-vote-down:hover:not(:disabled),
+.community-card-vote-down.active {
   border-color: var(--negative);
   color: var(--negative);
 }
 
-.community-card-like-btn.liked {
-  border-color: var(--negative);
-  color: var(--negative);
+.community-card-vote-down.active {
   box-shadow: 0 0 8px rgba(176, 98, 88, 0.3);
 }
 
-.community-card-like-btn.liked .community-card-like-icon {
-  text-shadow: 0 0 8px rgba(176, 98, 88, 0.6);
-}
-
-.community-card-like-btn:disabled {
+.community-card-vote-btn:disabled {
   opacity: 0.6;
   cursor: default;
 }
 
-.community-card-like-icon {
-  font-size: 12px;
-  line-height: 1;
+.community-card-vote-count {
+  font-variant-numeric: tabular-nums;
 }
 
 .community-card-actions {
@@ -2814,14 +2826,9 @@ h1::after {
   border-color: var(--border);
 }
 
-.community-card-is-preview .community-card-like-btn:disabled {
+/* In der Vorschau sind die Daumen nur Deko — voll sichtbar, aber inert. */
+.community-card-is-preview .community-card-vote-btn:disabled {
   opacity: 1;
-  cursor: default;
-}
-
-.community-card-is-preview .community-card-like-btn:disabled:hover {
-  border-color: var(--border);
-  color: var(--text-dim);
 }
 
 /* ---------- Info-Panel eines Builds ---------- */
@@ -2983,11 +2990,32 @@ h1::after {
 }
 
 .community-info-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
   padding-top: 14px;
   margin-top: 12px;
   border-top: 1px solid var(--border-dim);
   color: var(--text-faint);
   font-size: 10.5px;
+}
+
+.community-info-votes {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.community-info-vote {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.community-info-vote .community-icon {
+  width: 11px;
+  height: 11px;
 }
 
 /* ---------- Build-Key ---------- */
