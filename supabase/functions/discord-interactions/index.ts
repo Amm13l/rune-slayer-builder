@@ -8,12 +8,13 @@
 // Abgestimmt wird ueber cast_build_vote — dieselbe Postgres-Function wie im
 // Web-Hub, damit beide Seiten nach denselben Regeln zaehlen.
 //
-// Geschwindigkeit: Die Datenbank steht in eu-west-1 (Irland). Ohne Vorgabe
-// fuehrt Supabase die Function nahe am Aufrufer aus — bei Discord also in
-// us-east-1, und jeder DB-Aufruf ging ueber den Atlantik (gemessen: Median
-// 316–419 ms statt 32 ms). Die Interactions Endpoint URL im Discord
-// Developer Portal haengt deshalb ?forceFunctionRegion=eu-west-1 an: Discords
-// Anfrage ueber den Atlantik kostet ueber Supabase' Backbone nur ~50 ms.
+// Geschwindigkeit: Die Datenbank steht in eu-west-1 (Irland). Supabase fuehrt
+// die Function nahe am Aufrufer aus — bei Discord also in us-east-1, und jeder
+// DB-Aufruf ging ueber den Atlantik (gemessen: Median 316–419 ms statt 32 ms).
+// Landet ein Klick ausserhalb von eu-west-1, reicht die Function ihn deshalb
+// an sich selbst in eu-west-1 weiter (forwardToHomeRegion); der Sprung selbst
+// kostet ueber Supabase' Backbone nur ~50 ms. Mit ?forceFunctionRegion=eu-west-1
+// in der Interactions Endpoint URL entfiele auch dieser Zwischenschritt.
 // Jeder Klick startet ausserdem eine frische Instanz, Boot-Kosten zaehlen also
 // bei jedem Klick — daher native Kryptografie statt einer JS-Bibliothek.
 
@@ -37,6 +38,13 @@ const VOTE_DIRECTIONS: Record<string, number> = { like: 1, dislike: -1 };
 
 // Discord-Flag fuer "nur der Klickende sieht die Antwort".
 const EPHEMERAL = 64;
+
+const HOME_REGION = 'eu-west-1';
+// Markiert weitergereichte Anfragen, damit sie nie ein zweites Mal
+// weitergereicht werden — auch falls SB_REGION anders formatiert sein sollte.
+const FORWARDED_HEADER = 'x-rs-forwarded';
+// Discord wartet 3 s. Bleibt Luft, um bei einem Info-Klick lokal nachzuholen.
+const FORWARD_TIMEOUT_MS = 1500;
 
 function serviceHeaders(extra: Record<string, string> = {}) {
     return {
@@ -130,6 +138,68 @@ async function fetchBuild(buildId: string) {
     return rows[0] || null;
 }
 
+// Nur lesen — fuer den Fall, dass unklar ist, ob eine Stimme schon gezaehlt wurde.
+async function fetchCounts(buildId: string) {
+    const res = await fetch(`${BUILDS_URL}?select=likes_count,dislikes_count&id=eq.${buildId}`, { headers: serviceHeaders() });
+    if (!res.ok) throw new Error(`Count lookup failed (${res.status})`);
+    const rows = await res.json();
+    return rows[0] ? { likes: rows[0].likes_count ?? 0, dislikes: rows[0].dislikes_count ?? 0 } : null;
+}
+
+function shouldForward(req: Request): boolean {
+    const region = Deno.env.get('SB_REGION');
+    // Ohne bekannte Region lieber hier bearbeiten: langsam, aber sicher richtig.
+    return Boolean(region) && !region!.includes(HOME_REGION) && !req.headers.has(FORWARDED_HEADER);
+}
+
+/* Reicht einen bereits verifizierten Klick an diese Function in eu-west-1
+   weiter. Die Signatur-Header gehen unveraendert mit, dort wird erneut
+   geprueft.
+
+   Wichtig ist, was bei einem Fehler passiert: Eine Stimme ist ein Umschalter
+   und darf auf keinen Fall doppelt gezaehlt werden.
+     'done'   Antwort aus eu-west-1 liegt vor -> durchreichen.
+     'unsent' eu-west-1 hat mit 4xx abgelehnt, also nichts getan (Signatur,
+              Routing) -> hier gefahrlos selbst bearbeiten.
+     'unsure' Timeout, Netzfehler, 5xx -> die Stimme KOENNTE schon gezaehlt
+              sein. Nicht wiederholen. */
+type ForwardResult =
+    | { outcome: 'done'; response: Response }
+    | { outcome: 'unsent' | 'unsure' };
+
+async function forwardToHomeRegion(req: Request, rawBody: string): Promise<ForwardResult> {
+    try {
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/discord-interactions?forceFunctionRegion=${HOME_REGION}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Signature-Ed25519': req.headers.get('X-Signature-Ed25519') || '',
+                'X-Signature-Timestamp': req.headers.get('X-Signature-Timestamp') || '',
+                [FORWARDED_HEADER]: '1'
+            },
+            body: rawBody,
+            signal: AbortSignal.timeout(FORWARD_TIMEOUT_MS)
+        });
+        if (res.ok) {
+            // Nur den dekodierten Text uebernehmen, keine Header wie
+            // Content-Encoding — die wuerden nicht mehr zum Inhalt passen.
+            const text = await res.text();
+            return {
+                outcome: 'done',
+                response: new Response(text, {
+                    status: res.status,
+                    headers: { 'Content-Type': res.headers.get('Content-Type') || 'application/json' }
+                })
+            };
+        }
+        console.error('forward to home region answered', res.status);
+        return { outcome: res.status < 500 ? 'unsent' : 'unsure' };
+    } catch (err) {
+        console.error('forward to home region failed', err);
+        return { outcome: 'unsure' };
+    }
+}
+
 Deno.serve(async (req: Request) => {
     const rawBody = await req.text();
 
@@ -156,6 +226,28 @@ Deno.serve(async (req: Request) => {
     }
     if (!UUID_RE.test(buildId || '')) {
         return ephemeral('Invalid build.');
+    }
+
+    if (shouldForward(req)) {
+        const forwarded = await forwardToHomeRegion(req, rawBody);
+        if (forwarded.outcome === 'done') return forwarded.response;
+
+        // Stimme mit unklarem Ausgang: nicht nochmal abstimmen, sondern den
+        // tatsaechlichen Stand zeigen. Info ist nur lesend und darf unten
+        // ganz normal lokal nachgeholt werden.
+        if (forwarded.outcome === 'unsure' && action !== 'info') {
+            try {
+                const counts = await fetchCounts(buildId);
+                if (!counts) return ephemeral('This build no longer exists.');
+                return Response.json({
+                    type: 7, // UPDATE_MESSAGE
+                    data: { components: buildMessageComponents(buildId, counts.likes, counts.dislikes) }
+                });
+            } catch (err) {
+                console.error('count refresh failed', err);
+                return ephemeral('Could not confirm your vote — check the counter and try again.');
+            }
+        }
     }
 
     if (action === 'info') {
